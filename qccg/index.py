@@ -71,7 +71,7 @@ class AIndex(AlgebraicBase):
         """
 
         return (
-                self.spin,
+                -1 if self.spin is None else self.spin,
                 "bov".index(self.occupancy),
                 self.character,
                 self.summed,

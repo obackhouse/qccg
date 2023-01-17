@@ -17,6 +17,11 @@ class Expression(AlgebraicBase):
     """
 
     def __init__(self, contractions: Iterable["Contraction"], simplify: bool = True):
+        contractions = tuple(
+                Contraction((contraction,))
+                if not hasattr(contraction, "tensors") else contraction
+                for contraction in contractions
+        )
         self.contractions = contractions
         if simplify:
             self._simplify()
@@ -35,21 +40,6 @@ class Expression(AlgebraicBase):
         for contraction in self.contractions:
             new_contractions = contraction.canonicalise()
             contractions += list(new_contractions)
-
-        if qccg.spin == "rhf":
-            # Relabel spinned indices with restricted ones
-            for i, contraction in enumerate(contractions):
-                if any(index.spin in (0, 1) for index in contraction.indices):
-                    assert all(index.spin in (0, 1) for index in contraction.indices)
-                    factor = contraction.factor
-                    tensors = tuple(
-                            tensor.copy(indices=tuple(
-                                index.copy(spin=2)
-                                for index in tensor.indices
-                            ))
-                            for tensor in contraction.tensors
-                    )
-                    contractions[i] = Contraction((factor, *tensors))
 
         contractions = flatten(contractions)
 
@@ -77,9 +67,27 @@ class Expression(AlgebraicBase):
         over their alpha and beta components.
         """
 
-        expression = Expression([], simplify=False)
+        contractions = []
         for contraction in self.contractions:
-            expression = expression + contraction.expand_spin_orbitals()
+            contractions += list(contraction.expand_spin_orbitals().contractions)
+
+        contractions = flatten(contractions)
+
+        if qccg.spin == "rhf":
+            # Relabel spinned indices with restricted ones
+            contractions = [
+                    Contraction((contraction.factor, *[
+                        tensor.copy(indices=tuple(
+                            index.copy(spin=2)
+                            if index.spin in (0, 1) else index
+                            for index in tensor.indices
+                        ))
+                        for tensor in contraction.tensors
+                    ]))
+                    for contraction in contractions
+            ]
+
+        expression = self.__class__(contractions)
 
         return expression
 
@@ -211,7 +219,6 @@ class Contraction(AlgebraicBase):
 
         # Expand the tensors
         tensors, factors = zip(*[tensor.expand_spin_orbitals() for tensor in self.tensors])
-        print(tensors)
 
         # Collect results
         contractions = []
@@ -249,6 +256,7 @@ class Contraction(AlgebraicBase):
         """
 
         return (
+                len(self.tensors),
                 tuple(tensor._sort_key() for tensor in self.tensors),
                 abs(self.factor),
                 self.factor > 0,

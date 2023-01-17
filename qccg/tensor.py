@@ -3,6 +3,7 @@ Tensors
 """
 
 import itertools
+from collections import defaultdict
 from typing import Union, Iterable
 from ebcc.util import permutations_with_signs
 import qccg
@@ -30,14 +31,7 @@ class ATensor(AlgebraicBase):
         self.check_sanity()
 
     def check_sanity(self):
-        assert sum((
-            self.is_spin_orbital,
-            self.is_restricted,
-            self.is_unrestricted,
-        )) == 1
-
-    def canonicalise(self):
-        raise NotImplementedError
+        pass
 
     @property
     def rank(self):
@@ -58,8 +52,6 @@ class ATensor(AlgebraicBase):
     def copy(self, **kwargs):
         """
         Return a copy of the tensor, optionally replacing attributes.
-        Unless `record_parent=False` is passed, it will also record
-        the parent term that the copy originates from.
         """
 
         indices = kwargs.pop("indices", self.indices)
@@ -77,9 +69,6 @@ class ATensor(AlgebraicBase):
                 i += n
 
         tensor = self.__class__(*args)
-
-        if kwargs.pop("record_parent", True):
-            tensor.parent = self
 
         return tensor
 
@@ -172,6 +161,27 @@ class ATensor(AlgebraicBase):
         return Contraction((1 * self, 1 * other))
 
 
+class Scalar(ATensor):
+    """
+    Scalar value.
+    """
+
+    def __init__(self, symbol: str):
+        super().__init__(symbol, [])
+
+    def copy(self):
+        return self.__class__(self.symbol)
+
+    def canonicalise(self):
+        return self.copy()
+
+    def expand_spin_orbitals(self):
+        raise ValueError
+
+    def __repr__(self):
+        return self.symbol
+
+
 class Fock(ATensor):
     """
     Fock matrix.
@@ -186,7 +196,6 @@ class Fock(ATensor):
     def check_sanity(self):
         ATensor.check_sanity(self)
         assert self.rank == 2
-        assert self.indices[0].spin == self.indices[1].spin
         assert all(index.occupancy in ("o", "v") for index in self.indices)
 
     @property
@@ -201,18 +210,29 @@ class Fock(ATensor):
         list of possible alpha and beta components, and a list of phases.
         """
 
-        assert self.is_spin_orbital
-
         if qccg.spin == "ghf":
             return (self,), (1,)
 
-        tensors = (
-                self.substitute_indices({index: index.copy(spin=0) for index in self.indices}),
-                self.substitute_indices({index: index.copy(spin=1) for index in self.indices}),
-        )
-        factors = (1, 1)
+        fixed_spins = {
+                i: index.spin for i, index in enumerate(self.indices)
+                if index.spin is not None
+        }
+        tensors = defaultdict(int)
 
-        return tensors, factors
+        for spins in [
+                (0, 0),
+                (1, 1),
+        ]:
+            indices = tuple(index.copy(spin=spin) for index, spin in zip(self.indices, spins))
+
+            # If we have fixed spins, skip this one if it's not valid:
+            if any(indices[i].spin != spin for i, spin in fixed_spins.items()):
+                continue
+
+            tensor = self.copy(indices=indices)
+            tensors[tensor] += 1
+
+        return tuple(tensors.keys()), tuple(tensors.values())
 
 
 class ERI(ATensor):
@@ -262,15 +282,15 @@ class ERI(ATensor):
         over their alpha and beta components. Also expands the antisymmetry.
         """
 
-        # TODO hardcode?
-
-        assert self.is_spin_orbital
-
         if qccg.spin == "ghf":
             return (self,), (1,)
 
-        tensors = []
-        factors = []
+        fixed_spins = {
+                i: index.spin for i, index in enumerate(self.indices)
+                if index.spin is not None
+        }
+        tensors = defaultdict(int)
+
         for spins, direct, exchange in [
                 ((0, 0, 0, 0), True, True),
                 ((1, 1, 1, 1), True, True),
@@ -279,41 +299,21 @@ class ERI(ATensor):
                 ((0, 1, 1, 0), False, True),
                 ((1, 0, 0, 1), False, True),
         ]:
-            indices = [index.copy(spin=spin) for index, spin in zip(self.indices, spins)]
+            indices = tuple(index.copy(spin=spin) for index, spin in zip(self.indices, spins))
+
+            # If we have fixed spins, skip this one if it's not valid:
+            if any(indices[i].spin != spin for i, spin in fixed_spins.items()):
+                continue
+
             tensor = self.copy(indices=indices)
 
             if direct:
-                tensors.append(tensor)
-                factors.append(1)
+                tensors[tensor] += 1
 
             if exchange:
-                tensors.append(tensor.permute_indices((0, 1, 3, 2)))
-                factors.append(-1)
+                tensors[tensor.permute_indices((0, 1, 3, 2))] -= 1
 
-        return tuple(tensors), tuple(factors)
-
-    def canonicalise(self):
-        """
-        Canonicalise the indices according to the minimum equivalent
-        representation according to the permutations. Returns a new
-        tensor along with the phase of the canonicalisation.
-
-        Also handles spin permutations for ERIs.
-        """
-
-        tensor = self
-
-        # Now perform the usual canonicalisation:
-        tensors = [tensor]
-        factors = [None] * len(tensors)
-
-        for i, tensor in enumerate(tensors):
-            tensors[i], factors[i] = ATensor.canonicalise(tensor)
-
-        tensors = flatten(tensors)
-        factors = flatten(factors)
-
-        return tuple(tensors), tuple(factors)
+        return tuple(tensors.keys()), tuple(tensors.values())
 
 
 class FermionicAmplitude(ATensor):
@@ -351,25 +351,31 @@ class FermionicAmplitude(ATensor):
         over their alpha and beta components. Also expands the antisymmetry.
         """
 
-        assert self.is_spin_orbital
-
         if qccg.spin == "ghf":
             return (self,), (1,)
 
         if len(self.lower) != len(self.upper):
             raise NotImplementedError
 
-        tensors = []
-        factors = []
+        fixed_spins = {
+                i: index.spin for i, index in enumerate(self.indices)
+                if index.spin is not None
+        }
+        tensors = defaultdict(int)
+
         for lower in itertools.product(range(2), repeat=len(self.lower)):
             for upper in set(itertools.permutations(lower)):
                 spins = tuple(lower) + tuple(upper)
                 indices = tuple(index.copy(spin=spin) for index, spin in zip(self.indices, spins))
-                tensor = self.copy(indices=indices)
-                tensors.append(tensor)
-                factors.append(1)
 
-        return tuple(tensors), tuple(factors)
+                # If we have fixed spins, skip this one if it's not valid:
+                if any(indices[i].spin != spin for i, spin in fixed_spins.items()):
+                    continue
+
+                tensor = self.copy(indices=indices)
+                tensors[tensor] += 1
+
+        return tuple(tensors.keys()), tuple(tensors.values())
 
     def canonicalise(self):
         """
@@ -383,9 +389,21 @@ class FermionicAmplitude(ATensor):
         tensors = [self]
 
         if qccg.spin == "rhf":
+            fixed_spins = {
+                    i: index.spin for i, index in enumerate(self.indices)
+                    if index.spin is not None
+            }
+
             # Spin flip if needed
             for i, tensor in enumerate(tensors):
                 spins = tuple(index.spin for index in tensor.indices)
+
+                if any(spin is None for spin in spins):
+                    # Should this not be happening if we haven't expanded
+                    # spin orbitals? i.e. if spinned indices are explicitly
+                    # used
+                    continue
+
                 if sum(s == 1 for s in spins) > sum(s == 0 for s in spins):
                     indices = tuple(
                             index.copy(spin=(index.spin + 1) % 2)
@@ -432,24 +450,26 @@ class FermionicAmplitude(ATensor):
 
         return tuple(tensors), tuple(factors)
 
-    #def _sort_key(self):
-    #    """
-    #    Return a key for sorting objects of this type.
+    def _sort_key(self):
+        """
+        Return a key for sorting objects of this type. Adds a penalty
+        for neighbouring indices with the same spin.
+        """
 
-    #    Differs in that the "best" form has the channels the same
-    #    between lower and upper index sectors.
-    #    """
+        # We want mixed-spin cases to have alterating spin
+        # i.e. abab, abaaba, etc.
+        pattern = tuple(([0, 1] * self.rank)[:self.rank // 2])
+        penalty = (
+                + int(tuple(index.spin for index in self.lower) != pattern)
+                + int(tuple(index.spin for index in self.upper) != pattern)
+        )
 
-    #    same_spin = (
-    #            tuple(index.spin for index in self.lower)
-    #            == tuple(index.spin for index in self.upper)
-    #    )
-
-    #    return (
-    #            self.symbol,
-    #            not same_spin,        
-    #            tuple(index._sort_key() for index in self.indices),
-    #    )
+        return (
+                self.rank,
+                self.symbol,
+                penalty,
+                tuple(index._sort_key() for index in self.indices),
+        )
 
 
 class BosonicAmplitude(ATensor):
