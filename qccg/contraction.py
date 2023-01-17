@@ -255,12 +255,12 @@ class Contraction(AlgebraicBase):
         Return a key for sorting objects of this type.
         """
 
-        return (
+        return flatten((
                 len(self.tensors),
-                tuple(tensor._sort_key() for tensor in self.tensors),
+                tuple(zip(*tuple(tensor._sort_key() for tensor in self.tensors))),
                 abs(self.factor),
                 self.factor > 0,
-        )
+        ))
 
     def __repr__(self):
         return " ".join(["%r" % term for term in self.terms])

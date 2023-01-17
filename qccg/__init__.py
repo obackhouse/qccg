@@ -3,6 +3,9 @@ qccg: quantum chemistry code generation tools
 """
 
 
+from qccg import base, index, tensor, contraction, read, write
+
+
 # Register for dummy indices:
 
 import bisect
@@ -52,6 +55,3 @@ def clear():
     spin = "ghf"
 
 del Iterable, DummyIndex
-
-
-from qccg import base, index, tensor, contraction, read, write

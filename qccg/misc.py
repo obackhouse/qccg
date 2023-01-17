@@ -37,3 +37,13 @@ def _flatten(xs):
 
 def flatten(xs):
     return type(xs)(_flatten(xs))
+
+
+class AllType(set):
+    def __init__(self):
+        self._except = set()
+
+    def __contains__(self, item):
+        return item not in self._except
+
+All = AllType()

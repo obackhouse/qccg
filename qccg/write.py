@@ -4,6 +4,8 @@ Code generation
 
 from collections import defaultdict
 
+from qccg.misc import All
+
 default_characters = {
         "o": "ijklmnop",
         "v": "abcdefgh",
@@ -16,25 +18,13 @@ def write_einsum(
         einsum_function: str = "np.einsum",
         characters: dict = default_characters,
         add_occupancies: set = {"f", "v"},
-        reorder_axes: set = {"v": (0, 2, 1, 3)},
+        add_spins: set = All,
+        reorder_axes: set = {},
         indent: int = 0,
 ) -> str:
     """
     Writes an `Expression` in the form of an einsum.
     """
-
-    ## Build a map of indices to characters
-    #counters = defaultdict(int)
-    #index_map = {}
-    #for indices in [
-    #        output.indices,
-    #        *(contraction.indices for contraction in expression.contractions),
-    #]:
-    #    for index in indices:
-    #        if index not in index_map:
-    #            index_map[index.character] = \
-    #                    characters[index.occupancy][counters[index.occupancy]]
-    #            counters[index.occupancy] += 1
 
     # Write the terms
     subscript_out = "".join([index.character for index in output.indices])
@@ -49,10 +39,11 @@ def write_einsum(
             if symbol in reorder_axes:
                 indices = tuple(indices[i] for i in reorder_axes[symbol])
 
-            if any(index.spin in (0, 1) for index in indices):
-                if not all(index.spin in (0, 1) for index in indices):
-                    raise NotImplementedError
-                symbol += "." + "".join(["ab"[index.spin] for index in indices])
+            if tensor.symbol in add_spins:
+                if any(index.spin in (0, 1) for index in indices):
+                    if not all(index.spin in (0, 1) for index in indices):
+                        raise NotImplementedError
+                    symbol += "." + "".join(["ab"[index.spin] for index in indices])
 
             if tensor.symbol in add_occupancies:
                 symbol += "." + "".join([index.occupancy for index in indices])

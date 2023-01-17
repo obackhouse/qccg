@@ -12,7 +12,7 @@ from qccg.misc import flatten
 from qccg.index import AIndex, DummyIndex, ExternalIndex
 from qccg.contraction import Contraction, Expression
 
-ASSUME_REAL = False
+ASSUME_REAL = True
 
 
 class ATensor(AlgebraicBase):
@@ -101,7 +101,7 @@ class ATensor(AlgebraicBase):
         canonical.
         """
 
-        best = sign  = None
+        best = sign = None
         for perm, phase in self.perms:
             permuted_tensor = self.permute_indices(perm)
             if best is None or permuted_tensor < best:
@@ -125,30 +125,16 @@ class ATensor(AlgebraicBase):
 
         raise NotImplementedError  # Subclass only
 
-        if qccg.spin == "ghf":
-            return (self,), (1,)
-
-        indices = [index for index in self.indices if index.spin is None]
-        tensors = []
-
-        for perm in itertools.product(range(2), repeat=len(indices)):
-            spin_indices = [index.copy(spin=spin) for index, spin in zip(indices, perm)]
-            index_map = {old: new for old, new in zip(indices, spin_indices)}
-            tensor = self.substitute_indices(index_map)
-            tensors.append(tensor)
-
-        return tuple(tensors), (1,) * len(tensors)
-
     def _sort_key(self):
         """
         Return a key for sorting objects of this type.
         """
 
-        return (
+        return flatten((
                 self.rank,
                 self.symbol,
-                tuple(index._sort_key() for index in self.indices),
-        )
+                tuple(zip(*tuple(index._sort_key() for index in self.indices))),
+        ))
 
     def __repr__(self):
         index_string = ",".join(["%r" % x for x in self.indices])
@@ -265,16 +251,26 @@ class ERI(ATensor):
                 yield ((2, 3, 1, 0), -1)
                 yield ((3, 2, 1, 0),  1)
         else:
-            # Physicists' notation, bare
+            ## Physicists' notation, bare
+            #yield ((0, 1, 2, 3), 1)
+            #yield ((1, 0, 3, 2), 1)
+            #if self.real:
+            #    yield ((0, 3, 2, 1), 1)
+            #    yield ((1, 2, 3, 0), 1)
+            #    yield ((2, 1, 0, 3), 1)
+            #    yield ((2, 3, 0, 1), 1)
+            #    yield ((3, 0, 1, 2), 1)
+            #    yield ((3, 2, 1, 0), 1)
+            # Chemists' notation
             yield ((0, 1, 2, 3), 1)
-            yield ((1, 0, 3, 2), 1)
+            yield ((2, 3, 0, 1), 1)
             if self.real:
-                yield ((2, 3, 0, 1), 1)
+                yield ((0, 1, 3, 2), 1)
+                yield ((1, 0, 2, 3), 1)
+                yield ((1, 0, 3, 2), 1)
+                yield ((2, 3, 1, 0), 1)
+                yield ((3, 2, 0, 1), 1)
                 yield ((3, 2, 1, 0), 1)
-                yield ((2, 1, 0, 3), 1)
-                yield ((3, 0, 1, 2), 1)
-                yield ((0, 3, 2, 1), 1)
-                yield ((1, 2, 3, 0), 1)
 
     def expand_spin_orbitals(self):
         """
@@ -308,10 +304,10 @@ class ERI(ATensor):
             tensor = self.copy(indices=indices)
 
             if direct:
-                tensors[tensor] += 1
+                tensors[tensor.permute_indices((0, 2, 1, 3))] += 1
 
             if exchange:
-                tensors[tensor.permute_indices((0, 1, 3, 2))] -= 1
+                tensors[tensor.permute_indices((0, 3, 1, 2))] -= 1
 
         return tuple(tensors.keys()), tuple(tensors.values())
 
@@ -333,14 +329,19 @@ class FermionicAmplitude(ATensor):
 
     @property
     def perms(self):
+        if len(self.lower) != len(self.upper):
+            raise NotImplementedError
+
+        nlower = len(self.lower)
+
         if not self.is_restricted:
-            nlower = len(self.lower)
             for lower_perm, lower_sign in permutations_with_signs(range(nlower)):
                 for upper_perm, upper_sign in permutations_with_signs(range(nlower, self.rank)):
                     sign = lower_sign * upper_sign
                     yield (tuple(lower_perm) + tuple(upper_perm), sign)
         else:
-            yield (tuple(range(self.rank)), 1)
+            for perm, _ in permutations_with_signs(range(nlower)):
+                yield (tuple(perm) + tuple(nlower+i for i in perm), 1)
 
     def check_sanity(self):
         ATensor.check_sanity(self)
@@ -435,7 +436,7 @@ class FermionicAmplitude(ATensor):
 
                         tensors[i] = new_tensors
 
-            tensors = flatten(tensors)
+        tensors = flatten(tensors)
 
         # Now perform the usual canonicalisation:
         if tensors is None:
