@@ -376,7 +376,39 @@ class FermionicAmplitude(ATensor):
                 tensor = self.copy(indices=indices)
                 tensors[tensor] += 1
 
-        return tuple(tensors.keys()), tuple(tensors.values())
+        #return tuple(tensors.keys()), tuple(tensors.values())
+        tensors, factors = list(tensors.keys()), list(tensors.values())
+
+        if qccg.spin == "uhf":
+            # Expand the antisymmetry where spin allows
+            for i, tensor in enumerate(tensors):
+                spins = tuple(index.spin for index in tensor.indices)
+
+                if not all(s in (0, 1) for s in spins):
+                    continue
+
+                if len(self.lower) != len(self.upper):
+                    raise NotImplementedError
+
+                new_tensors = []
+                new_factors = []
+                for perm, sign in permutations_with_signs(range(len(self.lower))):
+                    indices = tensor.lower + tuple(tensor.upper[p] for p in perm)
+                    spins_perm = tuple(index.spin for index in indices)
+
+                    if spins == spins_perm:
+                        full_perm = tuple(range(len(self.lower))) + \
+                                tuple(p+len(self.lower) for p in perm)
+                        new_tensors.append(tensor.permute_indices(full_perm))
+                        new_factors.append(factors[i] * sign)
+
+                tensors[i] = new_tensors
+                factors[i] = new_factors
+
+        tensors = flatten(tensors)
+        factors = flatten(factors)
+
+        return tuple(tensors), tuple(factors)
 
     def canonicalise(self):
         """
@@ -388,21 +420,16 @@ class FermionicAmplitude(ATensor):
         """
 
         tensors = [self]
+        factors = [1]
 
         if qccg.spin == "rhf":
-            fixed_spins = {
-                    i: index.spin for i, index in enumerate(self.indices)
-                    if index.spin is not None
-            }
-
             # Spin flip if needed
             for i, tensor in enumerate(tensors):
                 spins = tuple(index.spin for index in tensor.indices)
 
                 if any(spin is None for spin in spins):
-                    # Should this not be happening if we haven't expanded
-                    # spin orbitals? i.e. if spinned indices are explicitly
-                    # used
+                    # Should this not be happening if we haven't expanded spin
+                    # orbitals? i.e. if spinned indices are explicitly used
                     continue
 
                 if sum(s == 1 for s in spins) > sum(s == 0 for s in spins):
@@ -435,14 +462,12 @@ class FermionicAmplitude(ATensor):
                             new_tensors.append(tensor.copy(indices=indices))
 
                         tensors[i] = new_tensors
+                        factors[i] = [1] * len(new_tensors)
 
         tensors = flatten(tensors)
+        factors = flatten(factors)
 
         # Now perform the usual canonicalisation:
-        if tensors is None:
-            tensors = [tensor]
-        factors = [None] * len(tensors)
-
         for i, tensor in enumerate(tensors):
             tensors[i], factors[i] = ATensor.canonicalise(tensor)
 

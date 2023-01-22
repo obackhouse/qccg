@@ -44,9 +44,9 @@ class AIndex(AlgebraicBase):
             return 0
         elif spin in ("beta", "b", "β", 1):
             return 1
-        elif spin in ("none", None):
+        elif spin in ("none", "n", None):
             return None
-        elif spin in ("both", "restricted", 2):
+        elif spin in ("both", "restricted", "r", 2):
             return 2
         else:
             raise ValueError("spin = %s", spin)

@@ -134,6 +134,7 @@ def from_pdaggerq(
                 if has_spin:
                     spins = tuple("ab".index(s) for s in part[-4:])
                     indices = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins))
+                    indices = (indices[0], indices[2], indices[1], indices[3])
                 tensor = ERI(indices)
 
             else:
@@ -149,11 +150,16 @@ def from_pdaggerq(
         else:
             # Otherwise, we want to remove the antisymmetry
             eri_indices = tuple(i for i, tensor in enumerate(tensors) if isinstance(tensor, ERI))
-            for perm in itertools.product(range(2), repeat=len(eri_indices)):
+            antisymmetric_indices = tuple(
+                    i for i, tensor in enumerate(tensors)
+                    if isinstance(tensor, ERI)
+                    and len(set(index.spin for index in tensor.indices)) == 1
+            )
+            for perm in itertools.product(range(2), repeat=len(antisymmetric_indices)):
                 new_tensors = tensors.copy()
-                for i, anti in zip(eri_indices, perm):
+                for i, anti in zip(antisymmetric_indices, perm):
                     if anti:
-                        new_tensors[i] = new_tensors[i].permute_indices((0, 1, 3, 2))
+                        new_tensors[i] = new_tensors[i].permute_indices((0, 3, 2, 1))
                 new_factor = factor * (-1)**sum(perm)
 
                 valid_spins = {
