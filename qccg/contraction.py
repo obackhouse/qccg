@@ -203,7 +203,7 @@ class Contraction(AlgebraicBase):
             tensors = tuple(sorted(tensors))
             contractions.append(self.__class__((factor, *tensors)))
 
-        # Canonicalise the dummy indices across the full contraction
+        # Canonicalise the dummy indices across the full contractions
         contractions = tuple(contraction.canonicalise_dummies() for contraction in contractions)
 
         return contractions

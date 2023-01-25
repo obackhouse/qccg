@@ -71,10 +71,10 @@ class AIndex(AlgebraicBase):
         """
 
         return (
-                -1 if self.spin is None else self.spin,
                 "bov".index(self.occupancy),
                 self.character,
                 self.summed,
+                5 if self.spin is None else self.spin,
         )
 
     def __repr__(self):
@@ -117,11 +117,11 @@ def index_factory(
     Factory to return indices.
     """
 
-    if len(occupancy) == 1:
-        occupancy = [occupancy for i in range(len(characters))]
+    if len(occupancy) == 1 and len(characters) > 1:
+        occupancy = [occupancy[0] for i in range(len(characters))]
 
-    if len(spin) == 1:
-        spin = [spin for i in range(len(characters))]
+    if len(spin) == 1 and len(characters) > 1:
+        spin = [spin[0] for i in range(len(characters))]
 
     assert len(characters) == len(occupancy) == len(spin)
 

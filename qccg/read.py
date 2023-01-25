@@ -231,7 +231,7 @@ def from_latex(
         factors = []
         for term in terms:
             if all(t in "1234567890-." for t in term):
-                factors.append(float(term))
+                factors.append(-1 if term == "-" else float(term))
             else:
                 tensors.append(term)
 

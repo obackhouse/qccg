@@ -3,7 +3,13 @@ qccg: quantum chemistry code generation tools
 """
 
 
-from qccg import base, index, tensor, contraction, read, write
+from qccg import base
+from qccg import index
+from qccg import tensor
+from qccg import contraction
+from qccg import read
+from qccg import write
+from qccg import optimisation
 
 
 # Register for dummy indices:

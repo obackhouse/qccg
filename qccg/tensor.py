@@ -90,7 +90,9 @@ class ATensor(AlgebraicBase):
 
         return self.copy(indices=indices)
 
-    perms = []
+    @property
+    def perms(self):
+        yield (tuple(range(self.rank)), 1)
 
     def canonicalise(self):
         """
@@ -130,9 +132,14 @@ class ATensor(AlgebraicBase):
         Return a key for sorting objects of this type.
         """
 
+        # Allow a penalty slot to support additional characteristics
+        # in subclasses
+        penalty = 0
+
         return flatten((
                 self.rank,
                 self.symbol,
+                penalty,
                 tuple(zip(*tuple(index._sort_key() for index in self.indices))),
         ))
 
@@ -340,8 +347,10 @@ class FermionicAmplitude(ATensor):
                     sign = lower_sign * upper_sign
                     yield (tuple(lower_perm) + tuple(upper_perm), sign)
         else:
-            for perm, _ in permutations_with_signs(range(nlower)):
-                yield (tuple(perm) + tuple(nlower+i for i in perm), 1)
+            yield (tuple(range(self.rank)), 1)
+            # Doesn't seem to be correct for n=3:
+            #for perm, _ in permutations_with_signs(range(nlower)):
+            #    yield (tuple(perm) + tuple(nlower+i for i in perm), 1)
 
     def check_sanity(self):
         ATensor.check_sanity(self)
@@ -376,7 +385,6 @@ class FermionicAmplitude(ATensor):
                 tensor = self.copy(indices=indices)
                 tensors[tensor] += 1
 
-        #return tuple(tensors.keys()), tuple(tensors.values())
         tensors, factors = list(tensors.keys()), list(tensors.values())
 
         if qccg.spin == "uhf":
@@ -482,20 +490,24 @@ class FermionicAmplitude(ATensor):
         for neighbouring indices with the same spin.
         """
 
+        # Add a penalty for when the ordering of the spin cases is
+        # not the same in covariant and contravariant indices
+        penalty = sum(i.spin != j.spin for i, j in zip(self.lower, self.upper)) * 2
+
         # We want mixed-spin cases to have alterating spin
         # i.e. abab, abaaba, etc.
         pattern = tuple(([0, 1] * self.rank)[:self.rank // 2])
-        penalty = (
+        penalty += (
                 + int(tuple(index.spin for index in self.lower) != pattern)
-                + int(tuple(index.spin for index in self.upper) != pattern)
+                * int(tuple(index.spin for index in self.upper) != pattern)
         )
 
-        return (
+        return flatten((
                 self.rank,
                 self.symbol,
                 penalty,
-                tuple(index._sort_key() for index in self.indices),
-        )
+                tuple(zip(*tuple(index._sort_key() for index in self.indices))),
+        ))
 
 
 class BosonicAmplitude(ATensor):
