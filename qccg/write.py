@@ -5,7 +5,7 @@ Code generation
 from collections import defaultdict
 
 import qccg
-from qccg.misc import All
+from qccg.misc import All, flatten
 
 default_characters = {
         "o": "ijklmnop",
@@ -104,7 +104,7 @@ def write_einsum(
 def write_opt_einsums(
         expressions: list,
         outputs: list,
-        final_outputs: "Tensor",
+        final_outputs: list,
         **kwargs,
 ) -> str:
     """
@@ -113,65 +113,104 @@ def write_opt_einsums(
     no longer needed.
     """
 
-    einsums = [
-            write_einsum(expression, output, **kwargs)
+    # FIXME this requires that the intermediate labels are already
+    # in a sensible order according to their need
+
+    # Split the expressions into single contractions
+    outputs = flatten([
+            [output] * len(expression.contractions)
             for expression, output in zip(expressions, outputs)
-    ]
-    lines = "\n".join(einsums).split("\n")
-    out = []
+    ])
+    expressions = flatten([
+            [
+                expression.__class__((contraction,), simplify=False)
+                for contraction in expression.contractions
+            ]
+            for expression in expressions
+    ])
 
-    # First, insert all lines that construct the outputted tensors
+    assert len(expressions) == len(outputs)
+
+    new_expressions = []
+    new_outputs = []
+
+    # Push any expression resulting in one of the final outputs to the
+    # end of the list
+    for i in range(len(expressions)-1, -1, -1):
+        if outputs[i] in final_outputs:
+             new_expressions.insert(0, expressions.pop(i))
+             new_outputs.insert(0, outputs.pop(i))
+
+    # Sort the output expressions according to the RHS intermediates
+    def score_expression(expression):
+        scores = [
+                [
+                    int(tensor.symbol.lstrip("x")) if tensor.symbol.startswith("x") else -1
+                    for tensor in contraction.tensors
+                ]
+                for contraction in expression.contractions
+        ]
+        return max(flatten(scores))
+    key = lambda tup: score_expression(tup[0])
+    new_expressions, new_outputs = zip(*sorted(zip(new_expressions, new_outputs), key=key))
+    new_expressions = list(new_expressions)
+    new_outputs = list(new_outputs)
+
+    # Sort the remaining expressions according to the LHS intermediate
+    def score_output(output):
+        score = int(output.symbol.lstrip("x")) if output.symbol.startswith("x") else -1
+        return score
+    key = lambda tup: score_output(tup[1])
+    expressions, outputs = zip(*sorted(zip(expressions, outputs), key=key))
+    expressions = list(expressions)
+    outputs = list(outputs)
+
+    # Insert the remaining expressions
     i = 0
-    while i < len(lines):
-        if any(lines[i].startswith(tensor.symbol) for tensor in final_outputs):
-            out.append(lines.pop(i))
-        else:
-            i += 1
+    while len(expressions):
+        current_score = score_expression(new_expressions[i])
+        if current_score != -1:
+            while len(expressions) and score_output(outputs[0]) <= current_score:
+                new_expressions.insert(i, expressions.pop(0))
+                new_outputs.insert(i, outputs.pop(0))
+                i += 1
+        i += 1
 
-    # Now, insert the intermediate definitions where they are needed,
-    # until they have all been used up
-    defined = set()
-    while len(lines):
-        for i in range(len(out)):
-            reset = False
-            if kwargs.get("einsum_function", "einsum") in out[i]:
-                constituents = out[i].split(", ")[1:]
-                constituents[-1] = constituents[-1].split(")")[0]
-                k = i
-                if out[k-1].startswith(out[k].split()[0]) and \
-                        kwargs.get("zeros_function", "zeros") in out[k-1] and k:
-                    k -= 1
-                #while out[k].startswith(out[i].split()[0]) and k:
-                #    k -= 1
-                for constituent in constituents:
-                    if constituent not in defined:
-                        # TODO O(1)
-                        for j in range(len(lines)-1, -1, -1):
-                            if lines[j].startswith(constituent):
-                                out.insert(k, lines.pop(j))
-                                reset = True
-                        defined.add(constituent)
-            if reset:
-                break
+    # Build einsums
+    einsums = flatten([
+            write_einsum(expression, output).split("\n")
+            for expression, output in zip(new_expressions, new_outputs)
+    ])
 
-    assert len(lines) == 0
+    # Since we split the contractions we need to remove duplicate
+    # initialisation statements
+    seen = set()
+    delete = set()
+    for i, line in enumerate(einsums):
+        if kwargs.get("zeros_function", "zeros") in line:
+            if line in seen:
+                delete.add(i)
+            seen.add(line)
+    einsums = [
+            line
+            for i, line in enumerate(einsums)
+            if i not in delete
+    ]
 
-    # Find the first and last appearence of each tensor
-    final_line = {x: 0 for x in defined if x.startswith("x")}
-    for i, line in enumerate(out):
-        constituents = line.split(", ")[1:]
-        constituents[-1] = constituents[-1].split(")")[0]
-        for constituent in constituents:
-            if constituent.startswith("x"):
-                final_line[constituent] = i
+    # Find the last appearence of each tensor
+    final_line = defaultdict(int)
+    for i, line in enumerate(einsums):
+        tensors = line.split(", ")[1:]
+        tensors[-1] = tensors[-1].split(")")[0]
+        for tensor in tensors:
+            if tensor.startswith("x"):
+                final_line[tensor] = i
 
     # Add delete statements after tensors are used the final time
     del_lists = defaultdict(list)
-    for constituent, line in final_line.items():
-        del_lists[line].append(constituent)
+    for tensor, line in final_line.items():
+        del_lists[line].append(tensor)
     for line, del_list in sorted(list(del_lists.items()))[::-1]:
-        out.insert(line+1, "del %s" % ", ".join(del_list))
+        einsums.insert(line+1, "del %s" % ", ".join(del_list))
 
-    out = "\n".join(out)
-
-    return out
+    return "\n".join(einsums)
