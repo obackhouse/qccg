@@ -113,7 +113,7 @@ def from_pdaggerq(
                     indices = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins))
                 tensor = Fock(indices)
 
-            elif part.startswith("t"):
+            elif part.startswith("t") or part.startswith("l"):
                 index_chars = part[part.index("(")+1:part.index(")")].split(",")
                 indices = tuple(index_map[index] for index in index_chars)
                 order = len(indices) // 2
@@ -250,7 +250,7 @@ def from_latex(
                     upper, lower = part.split("_")
                 else:
                     symbol, part = tensor.split("_")
-                    upper, lower = part.split("^")
+                    lower, upper = part.split("^")
                 upper, lower = tuple(upper), tuple(lower)
                 parts.append((symbol, (lower, upper)))
             else:
@@ -294,7 +294,7 @@ def from_latex(
 
             if symbol == "f":
                 tensor = Fock(*indices)
-            elif symbol == "t":
+            elif symbol in ("t", "l", "c"):
                 rank = len(indices[0])
                 tensor = FermionicAmplitude(symbol+str(rank), *indices)
             elif symbol == "v":

@@ -156,29 +156,30 @@ def write_opt_einsums(
     new_expressions = list(new_expressions)
     new_outputs = list(new_outputs)
 
-    # Sort the remaining expressions according to the LHS intermediate
-    def score_output(output):
-        score = int(output.symbol.lstrip("x")) if output.symbol.startswith("x") else -1
-        return score
-    key = lambda tup: score_output(tup[1])
-    expressions, outputs = zip(*sorted(zip(expressions, outputs), key=key))
-    expressions = list(expressions)
-    outputs = list(outputs)
+    if len(expressions):
+        # Sort the remaining expressions according to the LHS intermediate
+        def score_output(output):
+            score = int(output.symbol.lstrip("x")) if output.symbol.startswith("x") else -1
+            return score
+        key = lambda tup: score_output(tup[1])
+        expressions, outputs = zip(*sorted(zip(expressions, outputs), key=key))
+        expressions = list(expressions)
+        outputs = list(outputs)
 
-    # Insert the remaining expressions
-    i = 0
-    while len(expressions):
-        current_score = score_expression(new_expressions[i])
-        if current_score != -1:
-            while len(expressions) and score_output(outputs[0]) <= current_score:
-                new_expressions.insert(i, expressions.pop(0))
-                new_outputs.insert(i, outputs.pop(0))
-                i += 1
-        i += 1
+        # Insert the remaining expressions
+        i = 0
+        while len(expressions):
+            current_score = score_expression(new_expressions[i])
+            if current_score != -1:
+                while len(expressions) and score_output(outputs[0]) <= current_score:
+                    new_expressions.insert(i, expressions.pop(0))
+                    new_outputs.insert(i, outputs.pop(0))
+                    i += 1
+            i += 1
 
     # Build einsums
     einsums = flatten([
-            write_einsum(expression, output).split("\n")
+            write_einsum(expression, output, **kwargs).split("\n")
             for expression, output in zip(new_expressions, new_outputs)
     ])
 
@@ -187,7 +188,7 @@ def write_opt_einsums(
     seen = set()
     delete = set()
     for i, line in enumerate(einsums):
-        if kwargs.get("zeros_function", "zeros") in line:
+        if kwargs.get("zeros_function", "zeros") in line or " = 0" in line:
             if line in seen:
                 delete.add(i)
             seen.add(line)
@@ -200,17 +201,18 @@ def write_opt_einsums(
     # Find the last appearence of each tensor
     final_line = defaultdict(int)
     for i, line in enumerate(einsums):
-        tensors = line.split(", ")[1:]
-        tensors[-1] = tensors[-1].split(")")[0]
-        for tensor in tensors:
-            if tensor.startswith("x"):
-                final_line[tensor] = i
+        if not (kwargs.get("zeros_function", "zeros") in line or " = 0" in line):
+            tensors = line.split(", ")[1:]
+            tensors[-1] = tensors[-1].split(")")[0]
+            for tensor in tensors:
+                if tensor.startswith("x"):
+                    final_line[tensor] = i
 
     # Add delete statements after tensors are used the final time
     del_lists = defaultdict(list)
     for tensor, line in final_line.items():
         del_lists[line].append(tensor)
     for line, del_list in sorted(list(del_lists.items()))[::-1]:
-        einsums.insert(line+1, "del %s" % ", ".join(del_list))
+        einsums.insert(line+1, "%sdel %s" % (kwargs.get("indent", 0) * " ", ", ".join(del_list)))
 
     return "\n".join(einsums)
