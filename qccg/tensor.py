@@ -189,7 +189,7 @@ class Fock(ATensor):
     def check_sanity(self):
         ATensor.check_sanity(self)
         assert self.rank == 2
-        assert all(index.occupancy in ("o", "v") for index in self.indices)
+        assert all(index.occupancy.lower() in ("o", "v") for index in self.indices)
 
     @property
     def perms(self):
@@ -228,6 +228,31 @@ class Fock(ATensor):
         return tuple(tensors.keys()), tuple(tensors.values())
 
 
+class CDERI(ATensor):
+    """
+    Cholesky decomposed electronic repulsion integral.
+    """
+
+    _symbol = "v"
+
+    def __init__(self, indices: Iterable[AIndex], real: bool = ASSUME_REAL):
+        super().__init__(self._symbol, indices)
+        self.real = real
+
+    def check_sanity(self):
+        ATensor.check_sanity(self)
+        assert self.rank == 3
+        assert all(index.occupancy.lower() in ("o", "v") for index in self.indices[1:])
+        assert all(index.spin in (0, 1, 2) for index in self.indices[1:])
+        assert self.indices[0].occupancy == "x"
+        assert self.indices[0].spin == 2
+
+    @property
+    def perms(self):
+        yield ((0, 1, 2), 1)
+        yield ((0, 2, 1), 1)
+
+
 class ERI(ATensor):
     """
     Electronic repulsion integral.
@@ -242,7 +267,7 @@ class ERI(ATensor):
     def check_sanity(self):
         ATensor.check_sanity(self)
         assert self.rank == 4
-        assert all(index.occupancy in ("o", "v") for index in self.indices)
+        assert all(index.occupancy.lower() in ("o", "v") for index in self.indices)
 
     @property
     def perms(self):
@@ -317,6 +342,16 @@ class ERI(ATensor):
                 tensors[tensor.permute_indices((0, 3, 1, 2))] -= 1
 
         return tuple(tensors.keys()), tuple(tensors.values())
+
+    def expand_cderi(self, aux_index: AIndex):
+        """
+        Expand as a density fitting approximation.
+        """
+
+        return (
+                CDERI((aux_index, self.indices[0], self.indices[1])),
+                CDERI((aux_index, self.indices[2], self.indices[3])),
+        )
 
 
 class FermionicAmplitude(ATensor):

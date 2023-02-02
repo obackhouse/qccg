@@ -16,7 +16,7 @@ class AIndex(AlgebraicBase):
     character : str
         Character representation of the index.
     occupany : str
-        Occupany of the index, one of {"o", "v", "b"}.
+        Occupany of the index, one of {"o", "v", "O", "V", "b", "x"}.
     spin : int
         Spin of the index, 0 for alpha and 1 for beta. `None` is used
         to indicate a spin orbital, and 2 indicates a restricted orbital.
@@ -33,8 +33,14 @@ class AIndex(AlgebraicBase):
             return "o"
         elif occupancy in ("virtual", "v", "particle", "p"):
             return "v"
+        elif occupancy in ("occupied active", "O", "hole active", "H"):
+            return "O"
+        elif occupancy in ("virtual active", "V", "particle active", "P"):
+            return "V"
         elif occupancy in ("boson", "b"):
             return "b"
+        elif occupancy in ("auxiliary", "x"):
+            return "x"
         else:
             raise ValueError("occupancy = %s" % spin)
 
@@ -71,7 +77,7 @@ class AIndex(AlgebraicBase):
         """
 
         return (
-                "bov".index(self.occupancy),
+                "bovOVx".index(self.occupancy),
                 self.character,
                 self.summed,
                 5 if self.spin is None else self.spin,

@@ -12,6 +12,8 @@ from qccg.contraction import Contraction, Expression
 pdaggerq_characters = {
         "o": "ijklmnot",
         "v": "abcdefgh",
+        "O": "IJKLMNOT",
+        "V": "ABCDEFGH",
 }
 
 def from_pdaggerq(
@@ -91,8 +93,12 @@ def from_pdaggerq(
                 occupancy = "o"
             elif index in pdaggerq_characters["v"]:
                 occupancy = "v"
+            elif index in pdaggerq_characters["O"]:
+                occupancy = "O"
+            elif index in pdaggerq_characters["V"]:
+                occupancy = "V"
             else:
-                raise ValueError
+                raise ValueError(index)
 
             spin = index_spins.get(index, None)
 
@@ -174,6 +180,103 @@ def from_pdaggerq(
                 ):
                     contraction = Contraction((new_factor, *new_tensors))
                     contractions.append(contraction)
+
+    # Build the expression
+    expression = Expression(contractions)
+
+    return expression
+
+
+def from_wicked(
+        terms: list,
+        characters: dict = pdaggerq_characters,
+        index_spins: dict = {},
+) -> Expression:
+    """
+    Convert the output of `Equation.compile("ambit")` from `wicked`
+    into an `Expression`.
+    """
+
+    contractions = []
+    for term in terms:
+        # Parse the term
+        term = term.compile("ambit")
+        term = term.rstrip(";")
+        term = term.replace("*", "")
+        term = term.split()
+
+        # Get the elements
+        output = term.pop(0)
+        op = term.pop(0)
+        if all(x in "1234567890-." for x in term[0]):
+            factor = term.pop(0)
+        tensors = term
+
+        # Convert the factor
+        if factor == "-":
+            factor = "-1"
+        factor = float(factor)
+        if op == "-=":
+            factor *= -1
+
+        # Work out the external indices
+        if "[" in output:
+            externals = output.split("[")[1].rstrip("]").split(",")
+            externals = tuple(characters[c[0]][int(c[1:])] for c in externals)
+            externals = set(externals)
+        else:
+            externals = set()
+
+        tensor_parts = []
+        all_indices = set()
+        for i, tensor in enumerate(tensors):
+            # Get the symbol and index characters
+            symbol = tensor.split("[")[0]
+            indices = tensor.split("[")[1].rstrip("]").split(",")
+            indices = tuple(characters[c[0]][int(c[1:])] for c in indices)
+            tensor_parts.append((symbol, indices))
+            all_indices = all_indices.union(set(indices))
+
+        # Build index objects
+        index_map = {}
+        for index in all_indices:
+            if index in pdaggerq_characters["o"]:
+                occupancy = "o"
+            elif index in pdaggerq_characters["v"]:
+                occupancy = "v"
+            elif index in pdaggerq_characters["O"]:
+                occupancy = "O"
+            elif index in pdaggerq_characters["V"]:
+                occupancy = "V"
+            else:
+                raise ValueError
+
+            if index in externals:
+                index_map[index] = ExternalIndex(index, occupancy, None)
+            else:
+                index_map[index] = DummyIndex(index, occupancy, None)
+
+        # Build the contraction
+        tensors = []
+        for symbol, indices in tensor_parts:
+            indices = tuple(index_map[index] for index in indices)
+            if symbol == "f":
+                tensor = Fock(indices)
+            elif symbol in ("t", "l"):
+                order = len(indices) // 2
+                lower = indices[:order]
+                upper = indices[order:]
+                tensor = FermionicAmplitude(symbol, lower, upper)
+            elif symbol == "v":
+                tensor = ERI(indices)
+            else:
+                raise NotImplementedError(part)
+
+            tensors.append(tensor)
+
+        # Append the contractions
+        contraction = Contraction((factor, *tensors))
+        contractions.append(contraction)
 
     # Build the expression
     expression = Expression(contractions)

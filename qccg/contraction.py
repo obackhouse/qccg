@@ -9,6 +9,7 @@ from collections import defaultdict
 import qccg
 from qccg.base import AlgebraicBase
 from qccg.misc import flatten
+from qccg.index import DummyIndex
 
 
 class Expression(AlgebraicBase):
@@ -86,6 +87,20 @@ class Expression(AlgebraicBase):
                     ]))
                     for contraction in contractions
             ]
+
+        expression = self.__class__(contractions)
+
+        return expression
+
+    def expand_cderi(self):
+        """
+        Expand as a density fitting approximation.
+        """
+
+        contractions = []
+        for contraction in self.contractions:
+            contraction = contraction.expand_cderi()
+            contractions.append(contraction)
 
         expression = self.__class__(contractions)
 
@@ -249,6 +264,24 @@ class Contraction(AlgebraicBase):
                 contractions.append(self.__class__((factor, *tensors)))
 
         return Expression(contractions)
+
+    def expand_cderi(self):
+        """
+        Expand as a density fitting approximation.
+        """
+
+        indices = "PQRSUV"
+        i = 0
+
+        tensors = []
+        for tensor in self.tensors:
+            if hasattr(tensor, "expand_cderi"):
+                tensors += list(tensor.expand_cderi(DummyIndex(indices[i], "x", "r")))
+                i += 1
+            else:
+                tensors.append(tensor)
+
+        return self.__class__((self.factor, *tensors))
 
     def _sort_key(self):
         """

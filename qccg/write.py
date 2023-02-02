@@ -8,9 +8,12 @@ import qccg
 from qccg.misc import All, flatten
 
 default_characters = {
-        "o": "ijklmnop",
+        "o": "ijklmnot",
         "v": "abcdefgh",
+        "O": "IJKLMNOT",
+        "V": "ABCDEFGH",
         "b": "wxyz",
+        "x": "PQRSUV",
 }
 
 
@@ -25,7 +28,7 @@ def write_einsum(
         add_spins: set = All,
         reorder_axes: set = {},
         indent: int = 0,
-        index_sizes: dict = {"o": "nocc", "v": "nvir", "b": "nbos"},
+        index_sizes: dict = {"o": "nocc", "v": "nvir", "O": "naocc", "V": "navir", "b": "nbos"},
         garbage_collection: bool = True,
 ) -> str:
     """
