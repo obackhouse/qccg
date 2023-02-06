@@ -47,14 +47,14 @@ class AlgebraicBase:
     def __add__(self, other):
         raise NotImplementedError
 
-    def __radd__(self, other):
-        return other + self
+    #def __radd__(self, other):
+    #    return other + self
 
     def __sub__(self, other):
         return self + (-1 * other)
 
-    def __rsub__(self, other):
-        return other + (-1 * self)
+    #def __rsub__(self, other):
+    #    return other + (-1 * self)
 
     def __mul__(self, other):
         raise NotImplementedError
@@ -62,7 +62,7 @@ class AlgebraicBase:
     def __rmul__(self, other):
         # Since we only deal with indexed tensors (real or complex
         # scalars), they will always commute.
-        return other * self
+        return self * other
 
     __matmul__ = __mul__
     __rmatmul__ = __rmul__

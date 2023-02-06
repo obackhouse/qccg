@@ -12,17 +12,29 @@ Optimisation
 import os
 from collections import defaultdict
 
+import qccg
 from qccg.index import ExternalIndex
-from qccg.tensor import ATensor, Scalar, Fock, ERI, FermionicAmplitude
+from qccg.tensor import ATensor, Scalar, Fock, ERI, CDERI, FermionicAmplitude
 from qccg.contraction import Contraction, Expression
 
 
 DEFAULT_SIZES = {
         "o": 10,
         "v": 50,
+        "x": 200,
+        "b": 2,
 }
 
 OPMIN_COMMAND = "python2 /home/olli/git/opmin/src/opmin.py"
+
+default_characters = {
+        "o": "ijklmnot",
+        "v": "abcdefgh",
+        "O": "IJKLMNOT",
+        "V": "ABCDEFGH",
+        "b": "wxyz",
+        "x": "PQRSUV",
+}
 
 
 def optimise_expression(expressions, outputs, sizes=DEFAULT_SIZES, opmin=OPMIN_COMMAND):
@@ -252,11 +264,210 @@ def optimise_expression(expressions, outputs, sizes=DEFAULT_SIZES, opmin=OPMIN_C
             opt_expressions.append(Expression(contractions))
 
     # Clean up
-    #os.system("rm -f opmin_inp.eq")
-    #os.system("rm -f opmin_inp.eq.out")
-    #os.system("rm -f opmin_tester.py")
+    os.system("rm -f opmin_inp.eq")
+    os.system("rm -f opmin_inp.eq.out")
+    os.system("rm -f opmin_tester.py")
 
     return opt_expressions, opt_outputs
+
+
+def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, strat="trav", **gristmill_kwargs):
+    """
+    Optimise an expression using gristmill.
+    """
+
+    from dummy_spark import SparkContext
+    import drudge
+    import gristmill
+    import sympy
+
+    ctx = SparkContext()
+    dr = drudge.Drudge(ctx)
+
+    # Check the spin
+    indices = set()
+    for output in outputs:
+        for index in output.indices:
+            if index.occupancy != "x":
+                indices.add(index)
+    for expression in expressions:
+        for contraction in expression.contractions:
+            for tensor in contraction.tensors:
+                for index in tensor.indices:
+                    if index.occupancy != "x":
+                        indices.add(index)
+    spins = set(index.spin for index in indices)
+    ghf = spins == {None}
+    uhf = spins in ({0}, {1}, {0, 1})
+    rhf = spins == {2}
+    assert sum([ghf, uhf, rhf]) == 1
+
+    # Register the dummies
+    index_counter = defaultdict(int)
+    index_map = {}
+    substs = {}
+    ranges = {}
+    for sector, dummies in qccg.dummy_register.items():
+        size = sympy.Symbol("N"+sector)
+        rng = drudge.Range(sector, 0, size)
+        inds = []
+        for index in dummies:
+            if repr(index) not in index_map:
+                inds.append(sympy.Symbol("%s%d" % (index.occupancy, index_counter[index.occupancy])))
+                index_map[repr(index)] = inds[-1]
+                index_counter[index.occupancy] += 1
+            else:
+                inds.append(index_map[repr(index)])
+        dr.set_dumms(rng, inds)
+        substs[size] = sizes[sector]
+        ranges[sector] = rng
+    dr.add_resolver_for_dumms()
+
+    # Get the drudge einsums
+    terms = []
+    perms = {}
+    for expression, output in zip(expressions, outputs):
+        if output.rank != 0:
+            base = sympy.IndexedBase(output.symbol)
+            inds = []
+            for index in output.indices:
+                if repr(index) not in index_map:
+                    inds.append("%s%d" % (index.occupancy, index_counter[index.occupancy]))
+                    index_map[repr(index)] = inds[-1]
+                    index_counter[index.occupancy] += 1
+                else:
+                    inds.append(index_map[repr(index)])
+            out = base
+            lhs_ranges = [(sympy.Symbol(index), ranges[index[0]]) for index in inds]
+        else:
+            base = sympy.Symbol(output.symbol)
+            out = base
+            lhs_ranges = []
+
+        expr = 0
+        for contraction in expression.contractions:
+            einst = contraction.factor
+            for tensor in contraction.tensors:
+                base = sympy.IndexedBase(tensor.symbol)
+                inds = tuple(sympy.Symbol(repr(x)) for x in tensor.indices)
+                inds = []
+                for index in tensor.indices:
+                    if repr(index) not in index_map:
+                        inds.append(sympy.Symbol("%s%d" % (index.occupancy, index_counter[index.occupancy])))
+                        index_map[repr(index)] = inds[-1]
+                        index_counter[index.occupancy] += 1
+                    else:
+                        inds.append(index_map[repr(index)])
+                einst *= base[inds]
+                if tensor.symbol not in perms:
+                    perms[tensor.symbol] = list(tensor.perms)
+            expr += einst
+
+        rhs = dr.einst(expr)
+        terms.append(dr.define(out, *lhs_ranges, rhs))
+
+    # Set the symmetry permutations
+    for symbol, perm in perms.items():
+        base = sympy.IndexedBase(symbol)
+        perm_list = [
+                drudge.Perm(list(p), {-1: drudge.NEG, 1: drudge.IDENT}[a])
+                for p, a in perm
+                if tuple(p) != tuple(range(len(p)))
+        ]
+        if not len(perm_list):
+            perm_list = [None]
+        dr.set_symm(base, *perm_list)
+
+    # Optimise expression
+    terms = gristmill.optimize(
+            terms,
+            substs=substs,
+            contr_strat=getattr(gristmill.ContrStrat, strat.upper()),
+            interm_fmt="x{}",
+            **gristmill_kwargs,
+    )
+
+    # Convert expressions back
+    expressions = []
+    outputs = []
+    for term in terms:
+        symbol = term.lhs.base.name
+        inds = []
+        for index in term.lhs.indices:
+            occupancy = index.name[0]
+            n = int(index.name[1:])
+            char = default_characters[occupancy][n]
+            if ghf:
+                spin = None
+            elif rhf or occupancy == "x":
+                spin = 2
+            elif uhf and char == char.lower():
+                spin = 0
+            elif uhf and char == char.upper():
+                spins = 1
+            else:
+                raise ValueError
+            inds.append(ExternalIndex(char, occupancy, spin))
+
+        if len(inds) == 0:
+            output = Scalar(symbol)
+        elif symbol.startswith("x"):
+            output = ATensor(symbol, inds)
+        elif symbol.startswith("t") or symbol.startswith("l"):
+            upper = inds[:len(inds)//2]
+            lower = inds[len(inds)//2:]
+            output = FermionicAmplitude(symbol, upper, lower)
+        else:
+            raise ValueError(symbol)
+
+        contractions = []
+        for amp in [t.amp for t in term.rhs_terms]:
+            factor = float(sympy.prod(amp.atoms(sympy.Number)))
+            contr = factor
+
+            for tensor in amp.atoms(sympy.Indexed):
+                symbol = tensor.base.name
+                inds = []
+                for index in tensor.indices:
+                    occupancy = index.name[0]
+                    n = int(index.name[1:])
+                    char = default_characters[occupancy][n]
+                    if ghf:
+                        spin = None
+                    elif rhf or occupancy == "x":
+                        spin = 2
+                    elif uhf and char == char.lower():
+                        spin = 0
+                    elif uhf and char == char.upper():
+                        spins = 1
+                    else:
+                        raise ValueError
+                    inds.append(ExternalIndex(char, occupancy, spin))
+
+                if len(inds) == 0:
+                    tensor = Scalar(symbol)
+                elif symbol.startswith("x"):
+                    tensor = ATensor(symbol, inds)
+                elif symbol.startswith("f"):
+                    tensor = Fock(inds)
+                elif symbol.startswith("v"):
+                    tensor = ERI(inds)
+                elif symbol.startswith("t") or symbol.startswith("l"):
+                    upper = inds[:len(inds)//2]
+                    lower = inds[len(inds)//2:]
+                    tensor = FermionicAmplitude(symbol, upper, lower)
+                else:
+                    raise ValueError(symbol)
+
+                contr = contr * tensor
+
+            contractions.append(contr)
+
+        expression = Expression(contractions)
+        expressions.append(expression)
+        outputs.append(output)
+
+    return expressions, outputs
 
 
 del DEFAULT_SIZES, OPMIN_COMMAND
