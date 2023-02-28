@@ -3,18 +3,11 @@ Code generation
 """
 
 from collections import defaultdict
+import re
 
 import qccg
 from qccg.misc import All, flatten
-
-default_characters = {
-        "o": "ijklmnot",
-        "v": "abcdefgh",
-        "O": "IJKLMNOT",
-        "V": "ABCDEFGH",
-        "b": "wxyz",
-        "x": "PQRSUV",
-}
+from qccg.read import default_characters
 
 
 # TODO delete intermediates
@@ -37,6 +30,21 @@ def write_einsum(
 
     terms = []
 
+    # Get the output
+    res = output.symbol
+
+    if output.symbol in reorder_axes:
+        raise NotImplementedError
+
+    if output.symbol in add_spins and not (output.symbol.startswith("x") and output.symbol[1:].isnumeric()):
+        if any(index.spin in (0, 1) for index in output.indices):
+            if not all(index.spin in (0, 1) for index in output.indices):
+                raise NotImplementedError
+            res += "_" + "".join(["ab"[index.spin] for index in output.indices])
+
+    if output.symbol in add_occupancies:
+        res += "_" + "".join([index.occupancy for index in output.indices])
+
     # If index_sizes is passed, write initialisation
     if index_sizes:
         # Update with dummies
@@ -58,16 +66,17 @@ def write_einsum(
             if output.rank == 1:
                 shape += ","
             terms.append("{res} = {zeros}(({shape}), dtype=np.float64)".format(
-                res=output.symbol,
+                res=res,
                 zeros=zeros_function,
                 shape=shape,
             ))
 
     # Write the terms
-    subscript_out = "".join([index.character for index in output.indices])
     for contraction in expression.contractions:
         tensors = []
         subscripts_in = []
+        index_map = {}
+        index_count = 0
         for tensor in contraction.tensors:
             symbol = tensor.symbol
             indices = tensor.indices
@@ -75,7 +84,7 @@ def write_einsum(
             if symbol in reorder_axes:
                 indices = tuple(indices[i] for i in reorder_axes[symbol])
 
-            if tensor.symbol in add_spins:
+            if tensor.symbol in add_spins and not (tensor.symbol.startswith("x") and tensor.symbol[1:].isnumeric()):
                 if any(index.spin in (0, 1) for index in indices):
                     if not all(index.spin in (0, 1) for index in indices):
                         raise NotImplementedError
@@ -85,17 +94,26 @@ def write_einsum(
                 symbol += "." + "".join([index.occupancy for index in indices])
 
             tensors.append(symbol)
-            subscripts_in.append("".join([index.character for index in indices]))
+            subscripts_in_entry = []
+            for index in indices:
+                if index not in index_map:
+                    index_map[index] = index_count
+                    index_count += 1
+                subscripts_in_entry.append(index_map[index])
+            subscripts_in.append(tuple(subscripts_in_entry))
 
-        tensors = ", ".join(tensors)
-        subscripts_in = ",".join(subscripts_in)
+        subscripts_out = tuple(index_map[index] for index in output.indices)
+        operands = []
+        for tensor, subscript in zip(tensors, subscripts_in):
+            operands.append(tensor)
+            operands.append(subscript)
+        operands.append(subscripts_out)
+        operands = ", ".join([str(op) for op in operands])
 
-        term = "{res} += {fn}(\"{inp}->{out}\", {tens}){op}{fac}".format(
-                res=output.symbol,
+        term = "{res} += {fn}({operands}){op}{fac}".format(
+                res=res,
                 fn=einsum_function,
-                inp=subscripts_in,
-                out=subscript_out,
-                tens=tensors,
+                operands=operands,
                 op="" if contraction.factor == 1.0 else " * ",
                 fac="" if contraction.factor == 1.0 else contraction.factor,
         )
@@ -141,8 +159,8 @@ def write_opt_einsums(
     # end of the list
     for i in range(len(expressions)-1, -1, -1):
         if outputs[i] in final_outputs:
-             new_expressions.insert(0, expressions.pop(i))
-             new_outputs.insert(0, outputs.pop(i))
+            new_expressions.insert(0, expressions.pop(i))
+            new_outputs.insert(0, outputs.pop(i))
 
     # Sort the output expressions according to the RHS intermediates
     def score_expression(expression):
@@ -205,8 +223,7 @@ def write_opt_einsums(
     final_line = defaultdict(int)
     for i, line in enumerate(einsums):
         if not (kwargs.get("zeros_function", "zeros") in line or " = 0" in line):
-            tensors = line.split(", ")[1:]
-            tensors[-1] = tensors[-1].split(")")[0]
+            tensors = re.findall(r"(?<=\()[^\(\)]+(?=\))", line)
             for tensor in tensors:
                 if tensor.startswith("x"):
                     final_line[tensor] = i

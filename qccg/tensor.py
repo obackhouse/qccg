@@ -353,6 +353,255 @@ class ERI(ATensor):
                 CDERI((aux_index, self.indices[2], self.indices[3])),
         )
 
+    def _sort_key(self):
+        """
+        Return a key for sorting objects of this type.
+        """
+
+        # Add a penalty if the spins don't make sense
+        penalty = 0
+        if self.is_spin_orbital:
+            penalty += self.indices[0].spin == self.indices[1].spin
+            penalty += self.indices[2].spin == self.indices[3].spin
+        else:
+            penalty += self.indices[0].spin == self.indices[2].spin
+            penalty += self.indices[1].spin == self.indices[3].spin
+
+        return flatten((
+                self.rank,
+                self.symbol,
+                penalty,
+                tuple(zip(*tuple(index._sort_key() for index in self.indices))),
+        ))
+
+
+class RDM1(Fock):
+    """
+    1RDM matrix.
+    """
+
+    _symbol = "rdm1_f"
+
+
+class RDM2(ATensor):
+    """
+    2RDM matrix.
+    """
+
+    _symbol = "rdm2_f"
+
+    def __init__(self, indices: Iterable[AIndex], real: bool = ASSUME_REAL):
+        super().__init__(self._symbol, indices)
+        self.real = real
+
+    @property
+    def perms(self):
+        if not self.is_restricted:
+            yield ((0, 1, 2, 3),  1)
+            yield ((0, 1, 3, 2), -1)
+            yield ((1, 0, 2, 3), -1)
+            yield ((1, 0, 3, 2),  1)
+        else:
+            yield (tuple(range(self.rank)), 1)
+
+    def check_sanity(self):
+        assert self.rank == 4
+        assert all(index.occupancy.lower() in ("o", "v") for index in self.indices)
+        ATensor.check_sanity(self)
+
+    def expand_spin_orbitals(self):
+        """
+        Expand any spin orbitals (those with unspecified spin) into sums
+        over their alpha and beta components. Also expands the antisymmetry.
+        """
+
+        if qccg.spin == "ghf":
+            return (self,), (1,)
+
+        fixed_spins = {
+                i: index.spin for i, index in enumerate(self.indices)
+                if index.spin is not None
+        }
+        tensors = defaultdict(int)
+
+        for lower in itertools.product(range(2), repeat=2):
+            for upper in set(itertools.permutations(lower)):
+                spins = tuple(lower) + tuple(upper)
+                indices = tuple(index.copy(spin=spin) for index, spin in zip(self.indices, spins))
+
+                # If we have fixed spins, skip this one if it's not valid:
+                if any(indices[i].spin != spin for i, spin in fixed_spins.items()):
+                    continue
+
+                tensor = self.copy(indices=indices)
+                tensors[tensor] += 1
+
+        tensors, factors = list(tensors.keys()), list(tensors.values())
+
+        if qccg.spin == "uhf":
+            # Expand the antisymmetry where spin allows
+            for i, tensor in enumerate(tensors):
+                spins = tuple(index.spin for index in tensor.indices)
+
+                if not all(s in (0, 1) for s in spins):
+                    continue
+
+                new_tensors = []
+                new_factors = []
+                for perm, sign in [((0, 1, 2, 3), 1), ((1, 0, 2, 3), -1)]:
+                    indices = tuple(tensor.indices[p] for p in perm)
+                    spins_perm = tuple(index.spin for index in indices)
+
+                    if spins == spins_perm:
+                        new_tensors.append(tensor.permute_indices(perm))
+                        new_factors.append(factors[i] * sign)
+
+                tensors[i] = new_tensors
+                factors[i] = new_factors
+
+        tensors = flatten(tensors)
+        factors = flatten(factors)
+
+        return tuple(tensors), tuple(factors)
+
+    def expand_spin_orbitals(self):
+        """
+        Expand any spin orbitals (those with unspecified spin) into sums
+        over their alpha and beta components. Also expands the antisymmetry.
+        """
+
+        if qccg.spin == "ghf":
+            return (self,), (1,)
+
+        fixed_spins = {
+                i: index.spin for i, index in enumerate(self.indices)
+                if index.spin is not None
+        }
+        tensors = defaultdict(int)
+
+        for spins, direct, exchange in [
+                ((0, 0, 0, 0), True, True),
+                ((1, 1, 1, 1), True, True),
+                ((0, 1, 0, 1), True, False),
+                ((1, 0, 1, 0), True, False),
+                ((0, 1, 1, 0), False, True),
+                ((1, 0, 0, 1), False, True),
+        ]:
+            indices = tuple(index.copy(spin=spin) for index, spin in zip(self.indices, spins))
+
+            # If we have fixed spins, skip this one if it's not valid:
+            if any(indices[i].spin != spin for i, spin in fixed_spins.items()):
+                continue
+
+            tensor = self.copy(indices=indices)
+
+            if direct:
+                tensors[tensor.permute_indices((0, 1, 2, 3))] += 1
+
+            if exchange:
+                tensors[tensor.permute_indices((0, 1, 3, 2))] -= 1
+
+        return tuple(tensors.keys()), tuple(tensors.values())
+
+    def canonicalise(self):
+        """
+        Canonicalise the indices according to the minimum equivalent
+        representation according to the permutations. Returns a new
+        tensor along with the phase of the canonicalisation.
+
+        Also handles spin permutations for amplitudes.
+        """
+
+        tensors = [self]
+        factors = [1]
+
+        #if qccg.spin == "rhf":
+        #    # Spin flip if needed
+        #    for i, tensor in enumerate(tensors):
+        #        spins = tuple(index.spin for index in tensor.indices)
+
+        #        if any(spin is None for spin in spins):
+        #            # Should this not be happening if we haven't expanded spin
+        #            # orbitals? i.e. if spinned indices are explicitly used
+        #            continue
+
+        #        if sum(s == 1 for s in spins) > sum(s == 0 for s in spins):
+        #            indices = tuple(
+        #                    index.copy(spin=(index.spin + 1) % 2)
+        #                    for index in tensor.indices
+        #            )
+        #            tensors[i] = tensor.copy(indices=indices)
+
+        #    # Expand same-spin contributions in linear combinations of
+        #    # mixed spin components
+        #    for i, tensor in enumerate(tensors):
+        #        if tensor.rank > 2:
+        #            if all(index.spin == 0 for index in tensor.indices):
+        #                spins = []
+        #                for k in range(tensor.rank // 2):
+        #                    spin = [(1 if j % 2 else 0) for j in range(tensor.rank // 2)]
+        #                    spin += [(1 if k == j else 0) for j in range(tensor.rank // 2)]
+        #                    spins.append(spin)
+
+        #                new_tensors = []
+        #                for spin in spins:
+        #                    indices = tuple(
+        #                            index.copy(spin=s)
+        #                            for index, s in zip(tensor.indices, spin)
+        #                    )
+        #                    new_tensors.append(tensor.copy(indices=indices))
+
+        #                tensors[i] = new_tensors
+        #                factors[i] = [1] * len(new_tensors)
+
+        tensors = flatten(tensors)
+        factors = flatten(factors)
+
+        # Now perform the usual canonicalisation:
+        for i, tensor in enumerate(tensors):
+            tensors[i], factors[i] = ATensor.canonicalise(tensor)
+
+        tensors = flatten(tensors)
+        factors = flatten(factors)
+
+        return tuple(tensors), tuple(factors)
+
+    def _sort_key(self):
+        """
+        Return a key for sorting objects of this type. Adds a penalty
+        for neighbouring indices with the same spin.
+        """
+
+        # Add a penalty for when the ordering of the spin cases is
+        # not the same in covariant and contravariant indices
+        penalty = 2 * (
+                + int(self.indices[0].spin != self.indices[2].spin)
+                + int(self.indices[1].spin != self.indices[3].spin)
+        )
+
+        # We want mixed-spin cases to have alterating spin
+        # i.e. abab, abaaba, etc.
+        pattern = tuple(([0, 1] * self.rank)[:self.rank // 2])
+        penalty += (
+                + int(tuple(index.spin for index in self.indices[:2]) != pattern)
+                * int(tuple(index.spin for index in self.indices[2:]) != pattern)
+        )
+
+        return flatten((
+                self.rank,
+                self.symbol,
+                penalty,
+                tuple(zip(*tuple(index._sort_key() for index in self.indices))),
+        ))
+
+
+class Delta(Fock):
+    """
+    Delta function.
+    """
+
+    _symbol = "delta"
+
 
 class FermionicAmplitude(ATensor):
     """

@@ -13,8 +13,8 @@ import os
 from collections import defaultdict
 
 import qccg
-from qccg.index import ExternalIndex
-from qccg.tensor import ATensor, Scalar, Fock, ERI, CDERI, FermionicAmplitude
+from qccg.index import ExternalIndex, DummyIndex
+from qccg.tensor import ATensor, Scalar, Fock, ERI, CDERI, FermionicAmplitude, RDM1, RDM2, Delta
 from qccg.contraction import Contraction, Expression
 
 
@@ -303,21 +303,16 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
     assert sum([ghf, uhf, rhf]) == 1
 
     # Register the dummies
-    index_counter = defaultdict(int)
-    index_map = {}
     substs = {}
     ranges = {}
-    for sector, dummies in qccg.dummy_register.items():
+    if "o" in sizes and "O" not in sizes:
+        sizes["O"] = sizes["o"]
+    if "v" in sizes and "V" not in sizes:
+        sizes["V"] = sizes["v"]
+    for sector in sizes.keys():
         size = sympy.Symbol("N"+sector)
         rng = drudge.Range(sector, 0, size)
-        inds = []
-        for index in dummies:
-            if repr(index) not in index_map:
-                inds.append(sympy.Symbol("%s%d" % (index.occupancy, index_counter[index.occupancy])))
-                index_map[repr(index)] = inds[-1]
-                index_counter[index.occupancy] += 1
-            else:
-                inds.append(index_map[repr(index)])
+        inds = [sympy.Symbol("%s%d" % (sector, i)) for i in range(100)]
         dr.set_dumms(rng, inds)
         substs[size] = sizes[sector]
         ranges[sector] = rng
@@ -326,17 +321,22 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
     # Get the drudge einsums
     terms = []
     perms = {}
+    index_counter = defaultdict(int)
+    index_map = {}
+    spins = {}
     for expression, output in zip(expressions, outputs):
         if output.rank != 0:
             base = sympy.IndexedBase(output.symbol)
             inds = []
             for index in output.indices:
-                if repr(index) not in index_map:
-                    inds.append("%s%d" % (index.occupancy, index_counter[index.occupancy]))
-                    index_map[repr(index)] = inds[-1]
-                    index_counter[index.occupancy] += 1
+                if index not in index_map:
+                    sector = index.occupancy.upper() if index.spin == 1 else index.occupancy
+                    inds.append("%s%d" % (sector, index_counter[sector]))
+                    index_map[index] = inds[-1]
+                    spins[inds[-1]] = index.spin
+                    index_counter[sector] += 1
                 else:
-                    inds.append(index_map[repr(index)])
+                    inds.append(index_map[index])
             out = base
             lhs_ranges = [(sympy.Symbol(index), ranges[index[0]]) for index in inds]
         else:
@@ -349,15 +349,17 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
             einst = contraction.factor
             for tensor in contraction.tensors:
                 base = sympy.IndexedBase(tensor.symbol)
-                inds = tuple(sympy.Symbol(repr(x)) for x in tensor.indices)
                 inds = []
                 for index in tensor.indices:
-                    if repr(index) not in index_map:
-                        inds.append(sympy.Symbol("%s%d" % (index.occupancy, index_counter[index.occupancy])))
-                        index_map[repr(index)] = inds[-1]
-                        index_counter[index.occupancy] += 1
+                    if index not in index_map:
+                        sector = index.occupancy.upper() if index.spin == 1 else index.occupancy
+                        inds.append("%s%d" % (sector, index_counter[sector]))
+                        index_map[index] = inds[-1]
+                        spins[inds[-1]] = index.spin
+                        index_counter[sector] += 1
                     else:
-                        inds.append(index_map[repr(index)])
+                        inds.append(index_map[index])
+                inds = tuple(sympy.Symbol(x) for x in inds)
                 einst *= base[inds]
                 if tensor.symbol not in perms:
                     perms[tensor.symbol] = list(tensor.perms)
@@ -391,23 +393,27 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
     expressions = []
     outputs = []
     for term in terms:
-        symbol = term.lhs.base.name
-        inds = []
-        for index in term.lhs.indices:
-            occupancy = index.name[0]
-            n = int(index.name[1:])
-            char = default_characters[occupancy][n]
-            if ghf:
-                spin = None
-            elif rhf or occupancy == "x":
-                spin = 2
-            elif uhf and char == char.lower():
-                spin = 0
-            elif uhf and char == char.upper():
-                spins = 1
-            else:
-                raise ValueError
-            inds.append(ExternalIndex(char, occupancy, spin))
+        externals = set()
+        index_map = {}
+        index_counter = defaultdict(int)
+        if isinstance(term.lhs, sympy.Symbol):
+            symbol = term.lhs.name
+            inds = []
+        else:
+            symbol = term.lhs.base.name
+            inds = []
+            for index in term.lhs.indices:
+                sector = index.name[0]
+                n = int(index.name[1:])
+                if index in index_map:
+                    char = index_map[index]
+                else:
+                    char = default_characters[sector.lower()][index_counter[sector.lower()]]
+                    index_map[index] = char
+                    index_counter[sector.lower()] += 1
+                externals.add(char)
+                spin = spins[repr(index)]
+                inds.append(ExternalIndex(char, sector.lower(), spin))
 
         if len(inds) == 0:
             output = Scalar(symbol)
@@ -417,6 +423,13 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
             upper = inds[:len(inds)//2]
             lower = inds[len(inds)//2:]
             output = FermionicAmplitude(symbol, upper, lower)
+        elif symbol.startswith("delta"):
+            output = Delta(inds)
+        elif symbol.startswith("γ") or symbol.startswith("Γ") or symbol.startswith("rdm"):
+            if len(inds) == 2:
+                output = RDM1(inds)
+            else:
+                output = RDM2(inds)
         else:
             raise ValueError(symbol)
 
@@ -429,24 +442,23 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
                 symbol = tensor.base.name
                 inds = []
                 for index in tensor.indices:
-                    occupancy = index.name[0]
+                    sector = index.name[0]
                     n = int(index.name[1:])
-                    char = default_characters[occupancy][n]
-                    if ghf:
-                        spin = None
-                    elif rhf or occupancy == "x":
-                        spin = 2
-                    elif uhf and char == char.lower():
-                        spin = 0
-                    elif uhf and char == char.upper():
-                        spins = 1
+                    if index in index_map:
+                        char = index_map[index]
                     else:
-                        raise ValueError
-                    inds.append(ExternalIndex(char, occupancy, spin))
+                        char = default_characters[sector.lower()][index_counter[sector.lower()]]
+                        index_map[index] = char
+                        index_counter[sector.lower()] += 1
+                    spin = spins[repr(index)]
+                    if char in externals:
+                        inds.append(ExternalIndex(char, sector.lower(), spin))
+                    else:
+                        inds.append(DummyIndex(char, sector.lower(), spin))
 
                 if len(inds) == 0:
                     tensor = Scalar(symbol)
-                elif symbol.startswith("x"):
+                elif symbol.startswith("x") or symbol.startswith("denom"):
                     tensor = ATensor(symbol, inds)
                 elif symbol.startswith("f"):
                     tensor = Fock(inds)
@@ -456,6 +468,13 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
                     upper = inds[:len(inds)//2]
                     lower = inds[len(inds)//2:]
                     tensor = FermionicAmplitude(symbol, upper, lower)
+                elif symbol.startswith("delta"):
+                    tensor = Delta(inds)
+                elif symbol.startswith("γ") or symbol.startswith("Γ") or symbol.startswith("rdm"):
+                    if len(inds) == 2:
+                        tensor = RDM1(inds)
+                    else:
+                        tensor = RDM2(inds)
                 else:
                     raise ValueError(symbol)
 
@@ -463,7 +482,8 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
 
             contractions.append(contr)
 
-        expression = Expression(contractions)
+        # FIXME - the dummies are now messed up. Simplifying this breaks things.
+        expression = Expression(contractions, simplify=False)
         expressions.append(expression)
         outputs.append(output)
 

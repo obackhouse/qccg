@@ -311,3 +311,43 @@ class Contraction(AlgebraicBase):
         else:
             contractions = (self, other)
         return Expression(contractions)
+
+
+def insert(dst, srcs, outputs):
+    # Insert the expression output = src into dst.
+
+    contractions = []
+    for contraction in dst.contractions:
+        factor = contraction.factor
+        tensors = []
+
+        # Add tensors that are not substituted
+        for tensor in contraction.tensors:
+            if not any(tensor.symbol == output.symbol and all(i.spin == j.spin for i, j in zip(tensor.indices, output.indices)) for output in outputs):
+                tensors.append(tensor)
+
+        # Add tensors that are not substituted
+        has_subs = False
+        for tensor in contraction.tensors:
+            if any(tensor.symbol == output.symbol and all(i.spin == j.spin for i, j in zip(tensor.indices, output.indices)) for output in outputs):
+                # Exchange the indices in src to match tensor
+                has_subs = True
+                for src, output in zip(srcs, outputs):
+                    for c in src.contractions:
+                        perm = {}
+                        for i, j in zip(output.externals, tensor.indices):
+                            perm[i] = j
+                        for i in c.dummies:
+                            perm[i] = DummyIndex(i.character+"0", i.occupancy, i.spin)
+
+                        new_factor = factor * c.factor
+                        new_tensors = tensors + [t.copy(indices=tuple(perm[index] for index in t.indices)) for t in c.tensors]
+
+                        contractions.append(contraction.__class__([new_factor] + new_tensors))
+
+        if not has_subs:
+            contractions.append(contraction.__class__([factor] + tensors))
+
+    expression = dst.__class__(contractions)
+
+    return expression

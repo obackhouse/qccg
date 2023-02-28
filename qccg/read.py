@@ -6,19 +6,26 @@ import itertools
 from collections import defaultdict
 
 from qccg.index import ExternalIndex, DummyIndex
-from qccg.tensor import Fock, ERI, FermionicAmplitude
+from qccg.tensor import Fock, ERI, FermionicAmplitude, RDM1, RDM2, Delta, ATensor
 from qccg.contraction import Contraction, Expression
 
 pdaggerq_characters = {
-        "o": "ijklmnot",
-        "v": "abcdefgh",
-        "O": "IJKLMNOT",
-        "V": "ABCDEFGH",
+        "o": list("ijklmnot") + ["o%d" % x for x in range(20)],
+        "v": list("abcdefgh") + ["v%d" % x for x in range(20)],
+}
+
+default_characters = {
+        "o": list("ijklmnot") + ["o%d" % x for x in range(20)],
+        "v": list("abcdefgh") + ["v%d" % x for x in range(20)],
+        "O": list("IJKLMNOT") + ["O%d" % x for x in range(20)],
+        "V": list("ABCDEFGH") + ["V%d" % x for x in range(20)],
+        "b": list("wxyz") + ["b%d" % x for x in range(20)],
+        "x": "PQRSUV",
 }
 
 def from_pdaggerq(
         terms: list,
-        characters: dict = pdaggerq_characters,
+        characters: dict = default_characters,
         index_spins: dict = {},
 ) -> Expression:
     """
@@ -93,10 +100,6 @@ def from_pdaggerq(
                 occupancy = "o"
             elif index in pdaggerq_characters["v"]:
                 occupancy = "v"
-            elif index in pdaggerq_characters["O"]:
-                occupancy = "O"
-            elif index in pdaggerq_characters["V"]:
-                occupancy = "V"
             else:
                 raise ValueError(index)
 
@@ -142,6 +145,15 @@ def from_pdaggerq(
                     indices = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins))
                     indices = (indices[0], indices[2], indices[1], indices[3])
                 tensor = ERI(indices)
+
+            elif part.startswith("d"):
+                index_chars = part[part.index("(")+1:part.index(")")].split(",")
+                indices = tuple(index_map[index] for index in index_chars)
+                indices = indices[::-1]  # why?
+                if has_spin:
+                    spins = tuple("ab".index(s) for s in part[2:4])
+                    indices = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins))
+                tensor = Delta(indices)
 
             else:
                 raise NotImplementedError(part)
@@ -189,7 +201,7 @@ def from_pdaggerq(
 
 def from_wicked(
         terms: list,
-        characters: dict = pdaggerq_characters,
+        characters: dict = default_characters,
         index_spins: dict = {},
 ) -> Expression:
     """
@@ -240,13 +252,13 @@ def from_wicked(
         # Build index objects
         index_map = {}
         for index in all_indices:
-            if index in pdaggerq_characters["o"]:
+            if index in characters["o"]:
                 occupancy = "o"
-            elif index in pdaggerq_characters["v"]:
+            elif index in characters["v"]:
                 occupancy = "v"
-            elif index in pdaggerq_characters["O"]:
+            elif index in characters["O"]:
                 occupancy = "O"
-            elif index in pdaggerq_characters["V"]:
+            elif index in characters["V"]:
                 occupancy = "V"
             else:
                 raise ValueError
