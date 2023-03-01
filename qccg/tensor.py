@@ -353,26 +353,26 @@ class ERI(ATensor):
                 CDERI((aux_index, self.indices[2], self.indices[3])),
         )
 
-    def _sort_key(self):
-        """
-        Return a key for sorting objects of this type.
-        """
+    #def _sort_key(self):
+    #    """
+    #    Return a key for sorting objects of this type.
+    #    """
 
-        # Add a penalty if the spins don't make sense
-        penalty = 0
-        if self.is_spin_orbital:
-            penalty += self.indices[0].spin == self.indices[1].spin
-            penalty += self.indices[2].spin == self.indices[3].spin
-        else:
-            penalty += self.indices[0].spin == self.indices[2].spin
-            penalty += self.indices[1].spin == self.indices[3].spin
+    #    # Add a penalty if the spins don't make sense
+    #    penalty = 0
+    #    if self.is_spin_orbital:
+    #        penalty += self.indices[0].spin == self.indices[1].spin
+    #        penalty += self.indices[2].spin == self.indices[3].spin
+    #    else:
+    #        penalty += self.indices[0].spin == self.indices[2].spin
+    #        penalty += self.indices[1].spin == self.indices[3].spin
 
-        return flatten((
-                self.rank,
-                self.symbol,
-                penalty,
-                tuple(zip(*tuple(index._sort_key() for index in self.indices))),
-        ))
+    #    return flatten((
+    #            self.rank,
+    #            self.symbol,
+    #            penalty,
+    #            tuple(zip(*tuple(index._sort_key() for index in self.indices))),
+    #    ))
 
 
 class RDM1(Fock):

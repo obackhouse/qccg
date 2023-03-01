@@ -23,6 +23,7 @@ def write_einsum(
         indent: int = 0,
         index_sizes: dict = {"o": "nocc", "v": "nvir", "O": "naocc", "V": "navir", "b": "nbos"},
         garbage_collection: bool = True,
+        force_optimize_kwarg: bool = False,
 ) -> str:
     """
     Writes an `Expression` in the form of an einsum.
@@ -110,12 +111,13 @@ def write_einsum(
         operands.append(subscripts_out)
         operands = ", ".join([str(op) for op in operands])
 
-        term = "{res} += {fn}({operands}){op}{fac}".format(
+        term = "{res} += {fn}({operands}{opt}){op}{fac}".format(
                 res=res,
                 fn=einsum_function,
                 operands=operands,
                 op="" if contraction.factor == 1.0 else " * ",
                 fac="" if contraction.factor == 1.0 else contraction.factor,
+                opt=", optimize=True" if force_optimize_kwarg else "",
         )
         terms.append(term)
 

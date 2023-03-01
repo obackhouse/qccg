@@ -323,27 +323,29 @@ def insert(dst, srcs, outputs):
 
         # Add tensors that are not substituted
         for tensor in contraction.tensors:
-            if not any(tensor.symbol == output.symbol and all(i.spin == j.spin for i, j in zip(tensor.indices, output.indices)) for output in outputs):
+            if not any(tensor.symbol == output.symbol and all(i.spin == j.spin for i, j in zip(tensor.indices, output.externals)) for output in outputs):
                 tensors.append(tensor)
 
         # Add tensors that are not substituted
         has_subs = False
         for tensor in contraction.tensors:
-            if any(tensor.symbol == output.symbol and all(i.spin == j.spin for i, j in zip(tensor.indices, output.indices)) for output in outputs):
+            if any(tensor.symbol == output.symbol and all(i.spin == j.spin for i, j in zip(tensor.indices, output.externals)) for output in outputs):
                 # Exchange the indices in src to match tensor
                 has_subs = True
                 for src, output in zip(srcs, outputs):
-                    for c in src.contractions:
-                        perm = {}
-                        for i, j in zip(output.externals, tensor.indices):
-                            perm[i] = j
-                        for i in c.dummies:
-                            perm[i] = DummyIndex(i.character+"0", i.occupancy, i.spin)
+                    if all(i.spin == j.spin for i, j in zip(tensor.indices, output.externals)):
+                        for c in src.contractions:
+                            perm = {}
+                            for i, j in zip(output.externals, tensor.indices):
+                                assert i.spin == j.spin
+                                perm[i] = j
+                            for i in c.dummies:
+                                perm[i] = DummyIndex(i.character+"0", i.occupancy, i.spin)
 
-                        new_factor = factor * c.factor
-                        new_tensors = tensors + [t.copy(indices=tuple(perm[index] for index in t.indices)) for t in c.tensors]
+                            new_factor = factor * c.factor
+                            new_tensors = tensors + [t.copy(indices=tuple(perm[index] for index in t.indices)) for t in c.tensors]
 
-                        contractions.append(contraction.__class__([new_factor] + new_tensors))
+                            contractions.append(contraction.__class__([new_factor] + new_tensors))
 
         if not has_subs:
             contractions.append(contraction.__class__([factor] + tensors))
