@@ -192,10 +192,12 @@ def optimise_expression(expressions, outputs, sizes=DEFAULT_SIZES, opmin=OPMIN_C
                         for index in indices
                 )
                 output = ATensor(symbol, indices)
-            elif symbol.startswith("t") or symbol.startswith("l"):
-                upper = indices[:len(indices)//2]
-                lower = indices[len(indices)//2:]
-                output = FermionicAmplitude(symbol, upper, lower)
+            elif symbol.startswith("t") or symbol.startswith("l") or symbol.startswith("r"):
+                lower = tuple(index for index in indices if index.occupancy.lower() == "o")
+                upper = tuple(index for index in indices if index.occupancy.lower() == "v")
+                if symbol.startswith("l"):
+                    lower, upper = upper, lower
+                output = FermionicAmplitude(symbol, lower, upper)
             else:
                 raise ValueError(symbol)
 
@@ -251,10 +253,12 @@ def optimise_expression(expressions, outputs, sizes=DEFAULT_SIZES, opmin=OPMIN_C
                         tensors[i] = Fock(indices)
                     elif symbol.startswith("v"):
                         tensors[i] = ERI(indices)
-                    elif symbol.startswith("t") or symbol.startswith("l"):
-                        upper = indices[:len(indices)//2]
-                        lower = indices[len(indices)//2:]
-                        tensors[i] = FermionicAmplitude(symbol, upper, lower)
+                    elif symbol.startswith("t") or symbol.startswith("l") or symbol.startswith("r"):
+                        lower = tuple(index for index in indices if index.occupancy.lower() == "o")
+                        upper = tuple(index for index in indices if index.occupancy.lower() == "v")
+                        if symbol.startswith("l"):
+                            lower, upper = upper, lower
+                        tensors[i] = FermionicAmplitude(symbol, lower, upper)
                     else:
                         raise ValueError(symbol)
 
@@ -363,6 +367,8 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
                 einst *= base[inds]
                 if tensor.symbol not in perms:
                     perms[tensor.symbol] = list(tensor.perms)
+                else:
+                    perms[tensor.symbol] = [p for p in perms[tensor.symbol] if p in tensor.perms]
             expr += einst
 
         rhs = dr.einst(expr)
@@ -419,10 +425,6 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
             output = Scalar(symbol)
         elif symbol.startswith("x"):
             output = ATensor(symbol, inds)
-        elif symbol.startswith("t") or symbol.startswith("l"):
-            upper = inds[:len(inds)//2]
-            lower = inds[len(inds)//2:]
-            output = FermionicAmplitude(symbol, upper, lower)
         elif symbol.startswith("delta"):
             output = Delta(inds)
         elif symbol.startswith("γ") or symbol.startswith("Γ") or symbol.startswith("rdm"):
@@ -430,6 +432,12 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
                 output = RDM1(inds)
             else:
                 output = RDM2(inds)
+        elif symbol.startswith("t") or symbol.startswith("l") or symbol.startswith("r"):
+            lower = tuple(index for index in inds if index.occupancy.lower() == "o")
+            upper = tuple(index for index in inds if index.occupancy.lower() == "v")
+            if symbol.startswith("l"):
+                lower, upper = upper, lower
+            output = FermionicAmplitude(symbol, lower, upper)
         else:
             raise ValueError(symbol)
 
@@ -464,10 +472,6 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
                     tensor = Fock(inds)
                 elif symbol.startswith("v"):
                     tensor = ERI(inds)
-                elif symbol.startswith("t") or symbol.startswith("l"):
-                    upper = inds[:len(inds)//2]
-                    lower = inds[len(inds)//2:]
-                    tensor = FermionicAmplitude(symbol, upper, lower)
                 elif symbol.startswith("delta"):
                     tensor = Delta(inds)
                 elif symbol.startswith("γ") or symbol.startswith("Γ") or symbol.startswith("rdm"):
@@ -475,12 +479,19 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
                         tensor = RDM1(inds)
                     else:
                         tensor = RDM2(inds)
+                elif symbol.startswith("t") or symbol.startswith("l") or symbol.startswith("r") or symbol.startswith("c"):
+                    lower = tuple(index for index in inds if index.occupancy.lower() == "o")
+                    upper = tuple(index for index in inds if index.occupancy.lower() == "v")
+                    if symbol.startswith("l"):
+                        lower, upper = upper, lower
+                    tensor = FermionicAmplitude(symbol, lower, upper)
                 else:
                     raise ValueError(symbol)
 
                 contr = contr * tensor
 
-            contractions.append(contr)
+            for contr in contr.canonicalise(canonicalise_dummies=False):
+                contractions.append(contr)
 
         # FIXME - the dummies are now messed up. Simplifying this breaks things.
         expression = Expression(contractions, simplify=False)

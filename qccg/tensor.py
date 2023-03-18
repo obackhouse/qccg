@@ -353,26 +353,23 @@ class ERI(ATensor):
                 CDERI((aux_index, self.indices[2], self.indices[3])),
         )
 
-    #def _sort_key(self):
-    #    """
-    #    Return a key for sorting objects of this type.
-    #    """
+    def _sort_key(self):
+        """
+        Return a key for sorting objects of this type.
+        """
 
-    #    # Add a penalty if the spins don't make sense
-    #    penalty = 0
-    #    if self.is_spin_orbital:
-    #        penalty += self.indices[0].spin == self.indices[1].spin
-    #        penalty += self.indices[2].spin == self.indices[3].spin
-    #    else:
-    #        penalty += self.indices[0].spin == self.indices[2].spin
-    #        penalty += self.indices[1].spin == self.indices[3].spin
+        # Add a penalty for ba
+        if self.is_spin_orbital:
+            penalty = int(tuple(i.spin for i in self.indices) == (1, 0, 1, 0))
+        else:
+            penalty = int(tuple(i.spin for i in self.indices) == (1, 1, 0, 0))
 
-    #    return flatten((
-    #            self.rank,
-    #            self.symbol,
-    #            penalty,
-    #            tuple(zip(*tuple(index._sort_key() for index in self.indices))),
-    #    ))
+        return flatten((
+                self.rank,
+                self.symbol,
+                penalty,
+                tuple(zip(*tuple(index._sort_key() for index in self.indices))),
+        ))
 
 
 class RDM1(Fock):
@@ -620,16 +617,14 @@ class FermionicAmplitude(ATensor):
 
     @property
     def perms(self):
-        if len(self.lower) != len(self.upper):
-            raise NotImplementedError
-
         nlower = len(self.lower)
-
+        spins = tuple(i.spin for i in self.indices)
         if not self.is_restricted:
             for lower_perm, lower_sign in permutations_with_signs(range(nlower)):
                 for upper_perm, upper_sign in permutations_with_signs(range(nlower, self.rank)):
+                    perm = tuple(lower_perm) + tuple(upper_perm)
                     sign = lower_sign * upper_sign
-                    yield (tuple(lower_perm) + tuple(upper_perm), sign)
+                    yield (perm, sign)
         else:
             yield (tuple(range(self.rank)), 1)
             # Doesn't seem to be correct for n=3:
@@ -648,26 +643,38 @@ class FermionicAmplitude(ATensor):
         if qccg.spin == "ghf":
             return (self,), (1,)
 
-        if len(self.lower) != len(self.upper):
-            raise NotImplementedError
-
         fixed_spins = {
                 i: index.spin for i, index in enumerate(self.indices)
                 if index.spin is not None
         }
         tensors = defaultdict(int)
 
-        for lower in itertools.product(range(2), repeat=len(self.lower)):
-            for upper in set(itertools.permutations(lower)):
-                spins = tuple(lower) + tuple(upper)
-                indices = tuple(index.copy(spin=spin) for index, spin in zip(self.indices, spins))
+        # FIXME how to generalise?
+        spins_list = []
+        if len(self.lower) == len(self.upper):
+            for lower in itertools.product(range(2), repeat=len(self.lower)):
+                for upper in set(itertools.permutations(lower)):
+                    spins_list.append(tuple(lower) + tuple(upper))
+        elif {len(self.lower), len(self.upper)} == {0, 1}:
+            spins_list.append((0,))
+            spins_list.append((1,))
+        elif {len(self.lower), len(self.upper)} == {1, 2}:
+            spins_list.append((0, 0, 0))
+            spins_list.append((0, 1, 0))
+            spins_list.append((1, 0, 1))
+            spins_list.append((1, 1, 1))
+        else:
+            raise NotImplementedError
 
-                # If we have fixed spins, skip this one if it's not valid:
-                if any(indices[i].spin != spin for i, spin in fixed_spins.items()):
-                    continue
+        for spins in spins_list:
+            indices = tuple(index.copy(spin=spin) for index, spin in zip(self.indices, spins))
 
-                tensor = self.copy(indices=indices)
-                tensors[tensor] += 1
+            # If we have fixed spins, skip this one if it's not valid:
+            if any(indices[i].spin != spin for i, spin in fixed_spins.items()):
+                continue
+
+            tensor = self.copy(indices=indices)
+            tensors[tensor] += 1
 
         tensors, factors = list(tensors.keys()), list(tensors.values())
 
@@ -679,20 +686,27 @@ class FermionicAmplitude(ATensor):
                 if not all(s in (0, 1) for s in spins):
                     continue
 
-                if len(self.lower) != len(self.upper):
-                    raise NotImplementedError
-
                 new_tensors = []
                 new_factors = []
-                for perm, sign in permutations_with_signs(range(len(self.lower))):
-                    indices = tensor.lower + tuple(tensor.upper[p] for p in perm)
-                    spins_perm = tuple(index.spin for index in indices)
+                if len(self.upper) >= len(self.lower):
+                    for perm, sign in permutations_with_signs(range(len(self.upper))):
+                        indices = tensor.lower + tuple(tensor.upper[p] for p in perm)
+                        spins_perm = tuple(index.spin for index in indices)
 
-                    if spins == spins_perm:
-                        full_perm = tuple(range(len(self.lower))) + \
-                                tuple(p+len(self.lower) for p in perm)
-                        new_tensors.append(tensor.permute_indices(full_perm))
-                        new_factors.append(factors[i] * sign)
+                        if spins == spins_perm:
+                            full_perm = tuple(range(len(self.lower))) + \
+                                    tuple(p+len(self.lower) for p in perm)
+                            new_tensors.append(tensor.permute_indices(full_perm))
+                            new_factors.append(factors[i] * sign)
+                else:
+                    for perm, sign in permutations_with_signs(range(len(self.lower))):
+                        indices = tuple(tensor.lower[p] for p in perm) + tensor.upper
+                        spins_perm = tuple(index.spin for index in indices)
+
+                        if spins == spins_perm:
+                            full_perm = tuple(perm) + tuple(p+len(self.lower) for p in range(len(self.upper)))
+                            new_tensors.append(tensor.permute_indices(full_perm))
+                            new_factors.append(factors[i] * sign)
 
                 tensors[i] = new_tensors
                 factors[i] = new_factors
@@ -736,13 +750,15 @@ class FermionicAmplitude(ATensor):
             for i, tensor in enumerate(tensors):
                 if tensor.rank > 2:
                     if all(index.spin == 0 for index in tensor.indices):
-                        if len(self.lower) != len(self.upper):
-                            raise NotImplementedError
-
                         spins = []
                         for k in range(tensor.rank // 2):
-                            spin = [(1 if j % 2 else 0) for j in range(tensor.rank // 2)]
-                            spin += [(1 if k == j else 0) for j in range(tensor.rank // 2)]
+                            # FIXME for R?
+                            if len(tensor.lower) <= len(tensor.upper):
+                                spin = [(1 if j % 2 else 0) for j in range(len(tensor.lower))]
+                                spin += [(1 if k == j else 0) for j in range(len(tensor.upper))]
+                            else:
+                                spin = [(1 if k == j else 0) for j in range(len(tensor.lower))]
+                                spin += [(1 if j % 2 else 0) for j in range(len(tensor.upper))]
                             spins.append(spin)
 
                         new_tensors = []
@@ -774,17 +790,29 @@ class FermionicAmplitude(ATensor):
         for neighbouring indices with the same spin.
         """
 
-        # Add a penalty for when the ordering of the spin cases is
-        # not the same in covariant and contravariant indices
-        penalty = sum(i.spin != j.spin for i, j in zip(self.lower, self.upper)) * 2
+        if len(self.lower) == len(self.upper):
+            # For T, L we want mixed-spin cases to have alternating
+            # spin i.e. abab, abaaba, etc.
+            pattern_a = tuple(([0, 1] * self.rank)[:self.rank // 2]) * 2
+            pattern_b = tuple(([1, 0] * self.rank)[:self.rank // 2]) * 2
+            penalty = [
+                    int(tuple(index.spin for index in self.indices) != pattern_a),
+                    int(tuple(index.spin for index in self.indices) != pattern_b),
+                    *[int(i.spin != j.spin) for i, j in zip(self.lower, self.upper)],
+            ]
+        else:
+            # For R we want mixed-spin cases to have alternating
+            # spin i.e. aba, bab, ababa, babab, etc.
+            pattern = tuple(i % 2 for i in range(self.rank))
+            penalty = [int(tuple(index.spin for index in self.indices) != pattern)]
 
-        # We want mixed-spin cases to have alterating spin
-        # i.e. abab, abaaba, etc.
-        pattern = tuple(([0, 1] * self.rank)[:self.rank // 2])
-        penalty += (
-                + int(tuple(index.spin for index in self.lower) != pattern)
-                * int(tuple(index.spin for index in self.upper) != pattern)
-        )
+        # Otherwise, prefer all a indices before b
+        if len(self.lower) > 1:
+            penalty.append(int(any((i.spin, j.spin) == (1, 0) for i, j in zip(self.lower[:-1], self.lower[1:]))))
+        if len(self.upper) > 1:
+            penalty.append(int(any((i.spin, j.spin) == (1, 0) for i, j in zip(self.upper[:-1], self.upper[1:]))))
+
+        penalty = int("".join([str(x) for x in penalty]), 2)
 
         return flatten((
                 self.rank,

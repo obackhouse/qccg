@@ -2,6 +2,7 @@
 Import expressions
 """
 
+import re
 import itertools
 from collections import defaultdict
 
@@ -122,18 +123,19 @@ def from_pdaggerq(
                     indices = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins))
                 tensor = Fock(indices)
 
-            elif part.startswith("t") or part.startswith("l"):
+            elif any(part.startswith(x) for x in ("t", "l", "r")):
                 index_chars = part[part.index("(")+1:part.index(")")].split(",")
                 indices = tuple(index_map[index] for index in index_chars)
-                order = len(indices) // 2
-                symbol = part[0] + str(order)
-                upper = indices[:order]
-                lower = indices[order:]
+                symbol = part.split("(")[0]
                 if has_spin:
                     idx = part.index("_") + 1
                     spins = tuple("ab".index(s) for s in part[idx:idx+order*2])
-                    lower = tuple(index.copy(spin=spin) for index, spin in zip(lower, spins[:order]))
-                    upper = tuple(index.copy(spin=spin) for index, spin in zip(upper, spins[order:]))
+                else:
+                    spins = tuple(index.spin for index in indices)
+                lower = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins) if index.occupancy.lower() == "o")
+                upper = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins) if index.occupancy.lower() == "v")
+                if part.startswith("l"):
+                    lower, upper = upper, lower
                 tensor = FermionicAmplitude(symbol, lower, upper)
 
             elif part.startswith("<"):
@@ -145,6 +147,22 @@ def from_pdaggerq(
                     indices = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins))
                     indices = (indices[0], indices[2], indices[1], indices[3])
                 tensor = ERI(indices)
+
+            elif part.startswith("denom"):
+                # FIXME
+                class TempTensor(FermionicAmplitude):
+                    @property
+                    def perms(self):
+                        for p1 in itertools.permutations([0,1,2]):
+                            for p2 in itertools.permutations([3,4,5]):
+                                perm = p1 + p2
+                                if all(self.indices[i].spin == self.indices[p].spin for i, p in enumerate(perm)):
+                                    yield (perm, 1)
+                symbol = part.split("(")[0]
+                index_chars = part[part.index("(")+1:part.index(")")].split(",")
+                indices = tuple(index_map[index] for index in index_chars)
+                n = len(indices) // 2
+                tensor = TempTensor(symbol, indices[:n], indices[n:])
 
             elif part.startswith("d"):
                 index_chars = part[part.index("(")+1:part.index(")")].split(",")
@@ -275,6 +293,7 @@ def from_wicked(
             if symbol == "f":
                 tensor = Fock(indices)
             elif symbol in ("t", "l"):
+                raise NotImplementedError("FIXME")
                 order = len(indices) // 2
                 lower = indices[:order]
                 upper = indices[order:]
@@ -294,6 +313,45 @@ def from_wicked(
     expression = Expression(contractions)
 
     return expression
+
+
+def from_wick(
+        expr: str,
+        characters: dict = default_characters,
+        index_spins: dict = {},
+) -> Expression:
+    """
+    Convert the string form of a `wick.AExpression` to an `Expression`.
+
+    Just turns it into a pdaggerq format.
+    """
+
+    expr = expr.replace("}", "} ")
+    expr = re.sub(r"\\sum\_{.*?}", "", expr)
+    expr = re.sub(r"([-+]?\d+(?:\.\d+)?)(\D+)", r"\1 \2", expr)
+    expr = expr.replace("+ ", "+")
+    expr = expr.replace("- ", "-")
+
+    expr = re.sub(
+            r"f\_{([a-zA-Z]+[0-9]*)([a-zA-Z]+[0-9]*)}",
+            r"f(\1,\2)",
+            expr,
+    )
+    expr = re.sub(
+            r"v\_{([a-zA-Z]+[0-9]*)([a-zA-Z]+[0-9]*)([a-zA-Z]+[0-9]*)([a-zA-Z]+[0-9]*)}",
+            r"<\1,\2||\3,\4>",
+            expr,
+    )
+
+    for i in range(10, 0, -1):
+        for symbol in ["t", "l", "c", "r"]:
+            pattern = r"%s\_{%s}" % (symbol, "".join(["([a-zA-Z]+[0-9]*)"] * i))
+            res = r"%s%d(%s)" % (symbol, (i+1)//2, r",".join([r"\%d" % (i+1) for i in range(i)]))
+            expr = re.sub(pattern, res, expr)
+
+    terms = [e.split() for e in expr.split("\n")]
+
+    return from_pdaggerq(terms, characters=characters, index_spins=index_spins)
 
 
 def from_latex(

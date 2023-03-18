@@ -62,7 +62,7 @@ class Expression(AlgebraicBase):
         # Collect result
         self.contractions = contractions
 
-    def expand_spin_orbitals(self):
+    def expand_spin_orbitals(self, keep_spin_labels=[]):
         """
         Expand any spin orbitals (those with unspecified spin) into sums
         over their alpha and beta components.
@@ -76,15 +76,23 @@ class Expression(AlgebraicBase):
 
         if qccg.spin == "rhf":
             # Relabel spinned indices with restricted ones
-            contractions = [
-                    Contraction((contraction.factor, *[
-                        tensor.copy(indices=tuple(
+            def _proc(tensor):
+                if tensor.symbol in keep_spin_labels:
+                    return tensor
+                else:
+                    return tensor.copy(
+                        indices=tuple(
                             index.copy(spin=2)
                             if index.spin in (0, 1) else index
                             for index in tensor.indices
-                        ))
-                        for tensor in contraction.tensors
-                    ]))
+                        )
+                    )
+
+            contractions = [
+                    Contraction((
+                        contraction.factor,
+                        *[_proc(tensor) for tensor in contraction.tensors],
+                    ))
                     for contraction in contractions
             ]
 
@@ -191,7 +199,7 @@ class Contraction(AlgebraicBase):
 
         return self.__class__((self.factor,) + tensors)
 
-    def canonicalise(self):
+    def canonicalise(self, canonicalise_dummies=True):
         """
         Canonicalise the contraction. Dummy indices can be freely
         swapped. Also canonicalises the individual tensors. Returns a
@@ -218,8 +226,9 @@ class Contraction(AlgebraicBase):
             tensors = tuple(sorted(tensors))
             contractions.append(self.__class__((factor, *tensors)))
 
-        # Canonicalise the dummy indices across the full contractions
-        contractions = tuple(contraction.canonicalise_dummies() for contraction in contractions)
+        if canonicalise_dummies:
+            # Canonicalise the dummy indices across the full contractions
+            contractions = tuple(contraction.canonicalise_dummies() for contraction in contractions)
 
         return contractions
 

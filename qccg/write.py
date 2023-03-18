@@ -24,6 +24,7 @@ def write_einsum(
         index_sizes: dict = {"o": "nocc", "v": "nvir", "O": "naocc", "V": "navir", "b": "nbos"},
         garbage_collection: bool = True,
         force_optimize_kwarg: bool = False,
+        string_subscript: bool = False,
 ) -> str:
     """
     Writes an `Expression` in the form of an einsum.
@@ -104,12 +105,25 @@ def write_einsum(
             subscripts_in.append(tuple(subscripts_in_entry))
 
         subscripts_out = tuple(index_map[index] for index in output.indices)
-        operands = []
-        for tensor, subscript in zip(tensors, subscripts_in):
-            operands.append(tensor)
-            operands.append(subscript)
-        operands.append(subscripts_out)
-        operands = ", ".join([str(op) for op in operands])
+
+        if string_subscript:
+            index_map_inv = {val: key for key, val in index_map.items()}
+            string = ""
+            for subscript in subscripts_in:
+                for s in subscript:
+                    string += index_map_inv[s].character
+                string += ","
+            string = string[:-1] + "->"
+            for s in subscripts_out:
+                string += index_map_inv[s].character
+            operands = "\"" + string + "\", " + ", ".join(tensors)
+        else:
+            operands = []
+            for tensor, subscript in zip(tensors, subscripts_in):
+                operands.append(tensor)
+                operands.append(subscript)
+            operands.append(subscripts_out)
+            operands = ", ".join([str(op) for op in operands])
 
         term = "{res} += {fn}({operands}{opt}){op}{fac}".format(
                 res=res,
