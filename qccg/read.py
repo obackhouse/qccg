@@ -153,8 +153,8 @@ def from_pdaggerq(
                 class TempTensor(FermionicAmplitude):
                     @property
                     def perms(self):
-                        for p1 in itertools.permutations([0,1,2]):
-                            for p2 in itertools.permutations([3,4,5]):
+                        for p1 in itertools.permutations(range(len(self.lower))):
+                            for p2 in itertools.permutations(range(len(self.lower), self.rank)):
                                 perm = p1 + p2
                                 if all(self.indices[i].spin == self.indices[p].spin for i, p in enumerate(perm)):
                                     yield (perm, 1)
@@ -335,6 +335,11 @@ def from_wick(
     expr = re.sub(
             r"f\_{([a-zA-Z]+[0-9]*)([a-zA-Z]+[0-9]*)}",
             r"f(\1,\2)",
+            expr,
+    )
+    expr = re.sub(
+            r"delta\_{([a-zA-Z]+[0-9]*)([a-zA-Z]+[0-9]*)}",
+            r"delta(\1,\2)",
             expr,
     )
     expr = re.sub(

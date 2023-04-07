@@ -22,6 +22,7 @@ class ATensor(AlgebraicBase):
 
     _symbol = None
     _sectors = None
+    _perms = None
 
     def __init__(self, symbol: str, indices: Iterable[AIndex]):
         self.symbol = symbol
@@ -92,7 +93,15 @@ class ATensor(AlgebraicBase):
 
     @property
     def perms(self):
-        yield (tuple(range(self.rank)), 1)
+        if self._perms is not None:
+            for perm in self._perms:
+                yield perm
+        else:
+            yield (tuple(range(self.rank)), 1)
+
+    @perms.setter
+    def perms(self, lst):
+        self._perms = lst
 
     def canonicalise(self):
         """
@@ -193,9 +202,13 @@ class Fock(ATensor):
 
     @property
     def perms(self):
-        yield ((0, 1), 1)
-        if self.real:
-            yield ((1, 0), 1)
+        if self._perms is not None:
+            for perm in self._perms:
+                yield perm
+        else:
+            yield ((0, 1), 1)
+            if self.real:
+                yield ((1, 0), 1)
 
     def expand_spin_orbitals(self):
         """
@@ -249,8 +262,12 @@ class CDERI(ATensor):
 
     @property
     def perms(self):
-        yield ((0, 1, 2), 1)
-        yield ((0, 2, 1), 1)
+        if self._perms is not None:
+            for perm in self._perms:
+                yield perm
+        else:
+            yield ((0, 1, 2), 1)
+            yield ((0, 2, 1), 1)
 
 
 class ERI(ATensor):
@@ -271,38 +288,42 @@ class ERI(ATensor):
 
     @property
     def perms(self):
-        if self.is_spin_orbital:
-            # Physicists' notation, antisymmetrised
-            yield ((0, 1, 2, 3),  1)
-            yield ((0, 1, 3, 2), -1)
-            yield ((1, 0, 2, 3), -1)
-            yield ((1, 0, 3, 2),  1)
-            if self.real:
-                yield ((2, 3, 0, 1),  1)
-                yield ((3, 2, 0, 1), -1)
-                yield ((2, 3, 1, 0), -1)
-                yield ((3, 2, 1, 0),  1)
+        if self._perms is not None:
+            for perm in self._perms:
+                yield perm
         else:
-            ## Physicists' notation, bare
-            #yield ((0, 1, 2, 3), 1)
-            #yield ((1, 0, 3, 2), 1)
-            #if self.real:
-            #    yield ((0, 3, 2, 1), 1)
-            #    yield ((1, 2, 3, 0), 1)
-            #    yield ((2, 1, 0, 3), 1)
-            #    yield ((2, 3, 0, 1), 1)
-            #    yield ((3, 0, 1, 2), 1)
-            #    yield ((3, 2, 1, 0), 1)
-            # Chemists' notation
-            yield ((0, 1, 2, 3), 1)
-            yield ((2, 3, 0, 1), 1)
-            if self.real:
-                yield ((0, 1, 3, 2), 1)
-                yield ((1, 0, 2, 3), 1)
-                yield ((1, 0, 3, 2), 1)
-                yield ((2, 3, 1, 0), 1)
-                yield ((3, 2, 0, 1), 1)
-                yield ((3, 2, 1, 0), 1)
+            if self.is_spin_orbital:
+                # Physicists' notation, antisymmetrised
+                yield ((0, 1, 2, 3),  1)
+                yield ((0, 1, 3, 2), -1)
+                yield ((1, 0, 2, 3), -1)
+                yield ((1, 0, 3, 2),  1)
+                if self.real:
+                    yield ((2, 3, 0, 1),  1)
+                    yield ((3, 2, 0, 1), -1)
+                    yield ((2, 3, 1, 0), -1)
+                    yield ((3, 2, 1, 0),  1)
+            else:
+                ## Physicists' notation, bare
+                #yield ((0, 1, 2, 3), 1)
+                #yield ((1, 0, 3, 2), 1)
+                #if self.real:
+                #    yield ((0, 3, 2, 1), 1)
+                #    yield ((1, 2, 3, 0), 1)
+                #    yield ((2, 1, 0, 3), 1)
+                #    yield ((2, 3, 0, 1), 1)
+                #    yield ((3, 0, 1, 2), 1)
+                #    yield ((3, 2, 1, 0), 1)
+                # Chemists' notation
+                yield ((0, 1, 2, 3), 1)
+                yield ((2, 3, 0, 1), 1)
+                if self.real:
+                    yield ((0, 1, 3, 2), 1)
+                    yield ((1, 0, 2, 3), 1)
+                    yield ((1, 0, 3, 2), 1)
+                    yield ((2, 3, 1, 0), 1)
+                    yield ((3, 2, 0, 1), 1)
+                    yield ((3, 2, 1, 0), 1)
 
     def expand_spin_orbitals(self):
         """
@@ -393,13 +414,17 @@ class RDM2(ATensor):
 
     @property
     def perms(self):
-        if not self.is_restricted:
-            yield ((0, 1, 2, 3),  1)
-            yield ((0, 1, 3, 2), -1)
-            yield ((1, 0, 2, 3), -1)
-            yield ((1, 0, 3, 2),  1)
+        if self._perms is not None:
+            for perm in self._perms:
+                yield perm
         else:
-            yield (tuple(range(self.rank)), 1)
+            if not self.is_restricted:
+                yield ((0, 1, 2, 3),  1)
+                yield ((0, 1, 3, 2), -1)
+                yield ((1, 0, 2, 3), -1)
+                yield ((1, 0, 3, 2),  1)
+            else:
+                yield (tuple(range(self.rank)), 1)
 
     def check_sanity(self):
         assert self.rank == 4
@@ -617,19 +642,29 @@ class FermionicAmplitude(ATensor):
 
     @property
     def perms(self):
-        nlower = len(self.lower)
-        spins = tuple(i.spin for i in self.indices)
-        if not self.is_restricted:
-            for lower_perm, lower_sign in permutations_with_signs(range(nlower)):
-                for upper_perm, upper_sign in permutations_with_signs(range(nlower, self.rank)):
-                    perm = tuple(lower_perm) + tuple(upper_perm)
-                    sign = lower_sign * upper_sign
-                    yield (perm, sign)
+        if self._perms is not None:
+            for perm in self._perms:
+                yield perm
         else:
-            yield (tuple(range(self.rank)), 1)
-            # Doesn't seem to be correct for n=3:
-            #for perm, _ in permutations_with_signs(range(nlower)):
-            #    yield (tuple(perm) + tuple(nlower+i for i in perm), 1)
+            nlower = len(self.lower)
+            spins = tuple(i.spin for i in self.indices)
+            if not self.is_restricted:
+                for lower_perm, lower_sign in permutations_with_signs(range(nlower)):
+                    for upper_perm, upper_sign in permutations_with_signs(range(nlower, self.rank)):
+                        perm = tuple(lower_perm) + tuple(upper_perm)
+                        sign = lower_sign * upper_sign
+                        yield (perm, sign)
+            else:
+                # Only swap particles that originate from same spin...?
+                # Special cases:
+                if self.symbol.startswith("t2") or self.symbol.startswith("l2"):
+                    yield ((0, 1, 2, 3), 1)
+                    yield ((1, 0, 3, 2), 1)
+                elif self.symbol.startswith("t3") or self.symbol.startswith("l3"):
+                    yield ((0, 1, 2, 3, 4, 5), 1)
+                    yield ((2, 1, 0, 5, 4, 3), 1)
+                else:
+                    yield (tuple(range(self.rank)), 1)
 
     def check_sanity(self):
         ATensor.check_sanity(self)
@@ -837,8 +872,12 @@ class BosonicAmplitude(ATensor):
         symmetric exchange of the indices.
         """
 
-        for perm, _ in permutations_with_signs(range(self.rank)):
-            yield (tuple(perm), 1)
+        if self._perms is not None:
+            for perm in self._perms:
+                yield perm
+        else:
+            for perm, _ in permutations_with_signs(range(self.rank)):
+                yield (tuple(perm), 1)
 
 
 class MixedAmplitude(ATensor):
@@ -875,13 +914,17 @@ class MixedAmplitude(ATensor):
         sector.
         """
 
-        nboson = len(self.bosonic)
-        nlower = len(self.lower)
-        for bosonic_perm, _ in permutations_with_signs(range(nboson)):
-            for lower_perm, lower_sign in permutations_with_signs(range(nlower)):
-                for upper_perm, upper_sign in permutations_with_signs(range(nlower, self.rank)):
-                    sign = lower_sign * upper_sign
-                    yield (tuple(bosonic_perm) + tuple(lower_perm) + tuple(upper_perm), sign)
+        if self._perms is not None:
+            for perm in self._perms:
+                yield perm
+        else:
+            nboson = len(self.bosonic)
+            nlower = len(self.lower)
+            for bosonic_perm, _ in permutations_with_signs(range(nboson)):
+                for lower_perm, lower_sign in permutations_with_signs(range(nlower)):
+                    for upper_perm, upper_sign in permutations_with_signs(range(nlower, self.rank)):
+                        sign = lower_sign * upper_sign
+                        yield (tuple(bosonic_perm) + tuple(lower_perm) + tuple(upper_perm), sign)
 
 
 del ASSUME_REAL

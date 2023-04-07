@@ -493,6 +493,32 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
             for contr in contr.canonicalise(canonicalise_dummies=False):
                 contractions.append(contr)
 
+        # Determine the permutations of the intermediates
+        if output.symbol.startswith("x"):
+            all_perms = []
+            for contr in contractions:
+                perms = {(tuple(range(output.rank)), 1)}
+                if len(contr.tensors) == 1:
+                    # Just a transpose
+                    trans = tuple(contr.tensors[0].indices.index(i) for i in output.indices)
+                    for perm in contr.tensors[0].perms:
+                        perms.add((tuple(perm[0][p] for p in trans), perm[1]))
+                elif len(contr.tensors) == 2:
+                    for perm1 in contr.tensors[0].perms:
+                        for perm2 in contr.tensors[1].perms:
+                            perm = []
+                            for p in perm1[0]:
+                                index = contr.tensors[0].indices[p]
+                                if index in output.indices:
+                                    perm.append(output.indices.index(index))
+                            for p in perm2[0]:
+                                index = contr.tensors[1].indices[p]
+                                if index in output.indices:
+                                    perm.append(output.indices.index(index))
+                            perms.add((tuple(perm), perm1[1]*perm2[1]))
+                all_perms.append(perms)
+            output._perms = sorted(set.intersection(*all_perms))
+
         # FIXME - the dummies are now messed up. Simplifying this breaks things.
         expression = Expression(contractions, simplify=False)
         expressions.append(expression)
