@@ -444,7 +444,15 @@ def write_opt_einsums(
     final_line = defaultdict(int)
     for i, line in enumerate(einsums):
         if not (kwargs.get("zeros_function", "zeros") in line or " = 0" in line):
-            tensors = re.findall(r"(?<=\()[^\(\)]+(?=\))", line)
+            if not kwargs.get("string_subscript", False):
+                # The line is i.e. 'x0 += einsum(x, (0, 1, 2, 3), y, (4, 1, 5, 3), (4, 0, 5, 2))'
+                # and we want to find ['x', 'y']
+                tensors = line[line.index("("):-(line[::-1].index(")")+1)]
+                tensors = tensors.replace("(", " ").replace(")", " ").replace(",", " ")
+                tensors = [x for x in tensors.split() if not x.isdigit()]
+            else:
+                raise NotImplementedError
+
             for tensor in tensors:
                 if tensor.startswith("x"):
                     final_line[tensor] = i

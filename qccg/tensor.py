@@ -32,22 +32,37 @@ class ATensor(AlgebraicBase):
         self.check_sanity()
 
     def check_sanity(self):
+        """Hook for subclasses to check their own sanity.
+        """
+
         pass
 
     @property
     def rank(self):
+        """Rank of the tensor.
+        """
+
         return len(self.indices)
 
     @property
     def is_spin_orbital(self):
+        """Return True if the tensor contains any spin orbitals.
+        """
+
         return any(index.spin is None for index in self.indices)
 
     @property
     def is_unrestricted(self):
+        """Return True if the tensor contains any unrestricted indices.
+        """
+
         return any(index.spin in (0, 1) for index in self.indices)
 
     @property
     def is_restricted(self):
+        """Return True if the tensor contains any restricted indices.
+        """
+
         return any(index.spin == 2 for index in self.indices)
 
     def copy(self, **kwargs):
@@ -93,6 +108,12 @@ class ATensor(AlgebraicBase):
 
     @property
     def perms(self):
+        """Generate the symmetry-allowed permutations of the tensor,
+        yielding a permutation tuple along with a sign indicating
+        the phase (1 for symmetric and -1 for antisymmetric) of the
+        permutation.
+        """
+
         if self._perms is not None:
             for perm in self._perms:
                 yield perm
@@ -101,6 +122,9 @@ class ATensor(AlgebraicBase):
 
     @perms.setter
     def perms(self, lst):
+        """Allow the permutations to be set manually.
+        """
+
         self._perms = lst
 
     def canonicalise(self):
@@ -206,6 +230,7 @@ class Fock(ATensor):
             for perm in self._perms:
                 yield perm
         else:
+            # Fock matrix is symmetric under transposition for any spin
             yield ((0, 1), 1)
             if self.real:
                 yield ((1, 0), 1)
@@ -266,6 +291,8 @@ class CDERI(ATensor):
             for perm in self._perms:
                 yield perm
         else:
+            # Cholesky decomposed ERIs are symmetric under permutation
+            # of their non-auxiliary indices
             yield ((0, 1, 2), 1)
             yield ((0, 2, 1), 1)
 
@@ -838,8 +865,12 @@ class FermionicAmplitude(ATensor):
         else:
             # For R we want mixed-spin cases to have alternating
             # spin i.e. aba, bab, ababa, babab, etc.
-            pattern = tuple(i % 2 for i in range(self.rank))
-            penalty = [int(tuple(index.spin for index in self.indices) != pattern)]
+            pattern_a = tuple(i % 2 for i in range(self.rank))
+            pattern_b = tuple(0 if i == 1 else 1 for i in pattern_a)
+            penalty = [
+                    int(tuple(index.spin for index in self.indices) != pattern_a),
+                    int(tuple(index.spin for index in self.indices) != pattern_b),
+            ]
 
         # Otherwise, prefer all a indices before b
         if len(self.lower) > 1:

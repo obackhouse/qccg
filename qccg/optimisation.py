@@ -149,7 +149,7 @@ def optimise_expression(expressions, outputs, sizes=DEFAULT_SIZES, opmin=OPMIN_C
         inp = f.readlines()
         inp = [x.strip() for x in inp]
 
-    
+
     # Parse the output
     opt_expressions = []
     opt_outputs = []

@@ -20,7 +20,7 @@ class Singleton(int):
         s.value = value
         s.name = name
         s.short_name = short_name
-        
+
         return s
 
     def __repr__(self):
