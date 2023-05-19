@@ -33,11 +33,11 @@ def register_dummies(dummies: Iterable[DummyIndex]):
     for index in dummies:
         if index.spin is not None:
             index = index.copy(spin=None)
-        if index.occupancy not in dummy_register:
-            dummy_register[index.occupancy] = []
-        if index not in dummy_register[index.occupancy]:
+        if index.occupancy.lower() not in dummy_register:
+            dummy_register[index.occupancy.lower()] = []
+        if index not in dummy_register[index.occupancy.lower()]:
             # FIXME any point in making this O(1)?
-            bisect.insort(dummy_register[index.occupancy], index)
+            bisect.insort(dummy_register[index.occupancy.lower()], index)
 
 def set_spin(spin_type: str):
     """

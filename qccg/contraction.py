@@ -176,23 +176,25 @@ class Contraction(AlgebraicBase):
         """
 
         dummies = self.dummies
-        occupancies = set(index.occupancy for index in dummies)
+        occupancies = set(index.occupancy.lower() for index in dummies)
 
-        # Build a map of the dummy indices to swap
+        # Build a map of the dummy indices to swap - avoid having the
+        # same index for the same character with different spin or space
         dummy_map = {}
         for occupancy in occupancies:
             cache = set()
             old = []
             for index in dummies:
-                if index.occupancy == occupancy:
-                    index = index.copy(spin=None)
+                if index.occupancy.lower() == occupancy:
+                    index = index.copy(spin=None, occupancy=index.occupancy.lower())
                     if index not in cache:
                         old.append(index)
                         cache.add(index)
             new = qccg.dummy_register[occupancy][:len(old)].copy()
             for spin in (None, 0, 1):
-                for o, n in zip(old, new):
-                    dummy_map[o.copy(spin=spin)] = n.copy(spin=spin)
+                for occ in [occupancy.lower(), occupancy.upper()]:
+                    for o, n in zip(old, new):
+                        dummy_map[o.copy(spin=spin, occupancy=occ)] = n.copy(spin=spin, occupancy=occ)
 
         # Substitute the indices in the tensors
         tensors = tuple(tensor.substitute_indices(dummy_map) for tensor in self.tensors)
