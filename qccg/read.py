@@ -28,14 +28,13 @@ def from_pdaggerq(
         terms: list,
         characters: dict = default_characters,
         index_spins: dict = {},
+        has_spin: bool = False,
+        has_spaces: bool = False,
 ) -> Expression:
     """
     Convert the output of `fully_contracted_strings` from `pdaggerq`
     into an `Expression`.
     """
-
-    # Check if this is a UHF expression
-    has_spin = any(any("_" in part for part in term) for term in terms)  # OK?
 
     # Dissolve permutation operators
     i = 0
@@ -121,6 +120,9 @@ def from_pdaggerq(
                 if has_spin:
                     spins = tuple("ab".index(s) for s in part[2:4])
                     indices = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins))
+                if has_spaces:
+                    spaces = [{"0": "act", "1": "ext"}[x] for x in part[2:4]]
+                    indices = tuple(index.copy(occupancy=index.occupancy.upper() if space == "act" else index.occupancy.lower()) for index, space in zip(indices, spaces))
                 tensor = Fock(indices)
 
             elif any(part.startswith(x) for x in ("t", "l", "r")):
@@ -129,11 +131,17 @@ def from_pdaggerq(
                 symbol = part.split("(")[0]
                 if has_spin:
                     idx = part.index("_") + 1
-                    spins = tuple("ab".index(s) for s in part[idx:idx+order*2])
+                    spins = tuple("ab".index(s) for s in part[idx:idx+len(indices)])
                 else:
                     spins = tuple(index.spin for index in indices)
                 lower = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins) if index.occupancy.lower() == "o")
                 upper = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins) if index.occupancy.lower() == "v")
+                if has_spaces:
+                    idx = part.index("_") + 1
+                    spaces = [{"0": "act", "1": "ext"}[x] for x in part[idx:idx+len(indices)]]
+                    symbol = symbol[:idx-1]
+                    lower = tuple(index.copy(occupancy=index.occupancy.upper() if space == "act" else index.occupancy.lower()) for index, space in zip(lower, spaces))
+                    upper = tuple(index.copy(occupancy=index.occupancy.upper() if space == "act" else index.occupancy.lower()) for index, space in zip(upper, spaces))
                 if part.startswith("l"):
                     lower, upper = upper, lower
                 tensor = FermionicAmplitude(symbol, lower, upper)
@@ -146,10 +154,15 @@ def from_pdaggerq(
                     spins = tuple("ab".index(s) for s in part[-4:])
                     indices = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins))
                     indices = (indices[0], indices[2], indices[1], indices[3])
+                if has_spaces:
+                    spaces = [{"0": "act", "1": "ext"}[x] for x in part[-4:]]
+                    indices = tuple(index.copy(occupancy=index.occupancy.upper() if space == "act" else index.occupancy.lower()) for index, space in zip(indices, spaces))
                 tensor = ERI(indices)
 
             elif part.startswith("denom"):
                 # FIXME
+                if has_spaces:
+                    raise NotImplementedError
                 class TempTensor(FermionicAmplitude):
                     @property
                     def perms(self):
@@ -171,6 +184,9 @@ def from_pdaggerq(
                 if has_spin:
                     spins = tuple("ab".index(s) for s in part[2:4])
                     indices = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins))
+                if has_spaces:
+                    spaces = [{"0": "act", "1": "ext"}[x] for x in part[2:4]]
+                    indices = tuple(index.copy(occupancy=index.occupancy.upper() if space == "act" else index.occupancy.lower()) for index, space in zip(indices, spaces))
                 tensor = Delta(indices)
 
             else:
