@@ -314,12 +314,13 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
     if "v" in sizes and "V" not in sizes:
         sizes["V"] = sizes["v"]
     for sector in sizes.keys():
-        size = sympy.Symbol("N"+sector)
-        rng = drudge.Range(sector, 0, size)
-        inds = [sympy.Symbol("%s%d" % (sector, i)) for i in range(100)]
-        dr.set_dumms(rng, inds)
-        substs[size] = sizes[sector]
-        ranges[sector] = rng
+        for spin in ["", "a", "b"]:
+            size = sympy.Symbol("N"+sector+spin)
+            rng = drudge.Range(sector+spin, 0, size)
+            inds = [sympy.Symbol("%s%d%s" % (sector, i, spin)) for i in range(50)]
+            dr.set_dumms(rng, inds)
+            substs[size] = sizes[sector]
+            ranges[sector+spin] = rng
     dr.add_resolver_for_dumms()
 
     # Get the drudge einsums
@@ -334,8 +335,9 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
             inds = []
             for index in output.indices:
                 if index not in index_map:
-                    sector = index.occupancy.upper() if index.spin == 1 else index.occupancy
-                    inds.append("%s%d" % (sector, index_counter[sector]))
+                    sector = index.occupancy
+                    spin = {0: "a", 1: "b"}.get(index.spin, "")
+                    inds.append("%s%d%s" % (sector, index_counter[sector], spin))
                     index_map[index] = inds[-1]
                     spins[inds[-1]] = index.spin
                     index_counter[sector] += 1
@@ -356,8 +358,9 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
                 inds = []
                 for index in tensor.indices:
                     if index not in index_map:
-                        sector = index.occupancy.upper() if index.spin == 1 else index.occupancy
-                        inds.append("%s%d" % (sector, index_counter[sector]))
+                        sector = index.occupancy
+                        spin = {0: "a", 1: "b"}.get(index.spin, "")
+                        inds.append("%s%d%s" % (sector, index_counter[sector], spin))
                         index_map[index] = inds[-1]
                         spins[inds[-1]] = index.spin
                         index_counter[sector] += 1
@@ -410,16 +413,17 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
             inds = []
             for index in term.lhs.indices:
                 sector = index.name[0]
-                n = int(index.name[1:])
+                n = int(index.name[1:].strip("a").strip("b"))
                 if index in index_map:
                     char = index_map[index]
                 else:
-                    char = default_characters[sector.lower()][index_counter[sector.lower()]]
+                    char = default_characters[sector][index_counter[sector.lower()]]
                     index_map[index] = char
                     index_counter[sector.lower()] += 1
                 externals.add(char)
-                spin = spins[repr(index)]
-                inds.append(ExternalIndex(char, sector.lower(), spin))
+                #spin = spins[repr(index)]
+                spin = None if ghf else (2 if rhf else {"a": 0, "b": 1}[repr(index)[-1]])
+                inds.append(ExternalIndex(char, sector, spin))
 
         if len(inds) == 0:
             output = Scalar(symbol)
@@ -451,18 +455,19 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
                 inds = []
                 for index in tensor.indices:
                     sector = index.name[0]
-                    n = int(index.name[1:])
+                    n = int(index.name[1:].strip("a").strip("b"))
                     if index in index_map:
                         char = index_map[index]
                     else:
-                        char = default_characters[sector.lower()][index_counter[sector.lower()]]
+                        char = default_characters[sector][index_counter[sector.lower()]]
                         index_map[index] = char
                         index_counter[sector.lower()] += 1
-                    spin = spins[repr(index)]
+                    #spin = spins[repr(index)]
+                    spin = None if ghf else (2 if rhf else {"a": 0, "b": 1}[repr(index)[-1]])
                     if char in externals:
-                        inds.append(ExternalIndex(char, sector.lower(), spin))
+                        inds.append(ExternalIndex(char, sector, spin))
                     else:
-                        inds.append(DummyIndex(char, sector.lower(), spin))
+                        inds.append(DummyIndex(char, sector, spin))
 
                 if len(inds) == 0:
                     tensor = Scalar(symbol)
