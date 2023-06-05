@@ -169,14 +169,19 @@ class Contraction(AlgebraicBase):
                 indices[index] = None
         return tuple(indices.keys())
 
-    def canonicalise_dummies(self):
+    def canonicalise_dummies(self, lower=False):
         """
         Reset the dummy indices in the contraction into a canonical
         form.
         """
 
+        if lower:
+            modifier = str.lower
+        else:
+            modifier = lambda s: s
+
         dummies = self.dummies
-        occupancies = set(index.occupancy.lower() for index in dummies)
+        occupancies = set(modifier(index.occupancy) for index in dummies)
 
         # Build a map of the dummy indices to swap - avoid having the
         # same index for the same character with different spin or space
@@ -185,12 +190,12 @@ class Contraction(AlgebraicBase):
             cache = set()
             old = []
             for index in dummies:
-                if index.occupancy.lower() == occupancy:
-                    index = index.copy(spin=None, occupancy=index.occupancy.lower())
+                if modifier(index.occupancy) == occupancy:
+                    index = index.copy(spin=None, occupancy=index.occupancy)
                     if index not in cache:
                         old.append(index)
                         cache.add(index)
-            new = qccg.dummy_register[occupancy][:len(old)].copy()
+            new = qccg.dummy_register[occupancy.lower()][:len(old)].copy()
             for spin in (None, 0, 1):
                 for occ in [occupancy.lower(), occupancy.upper()]:
                     for o, n in zip(old, new):

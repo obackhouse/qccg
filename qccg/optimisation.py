@@ -21,6 +21,8 @@ from qccg.contraction import Contraction, Expression
 DEFAULT_SIZES = {
         "o": 10,
         "v": 50,
+        "O": 1,
+        "V": 1,
         "x": 200,
         "b": 2,
 }
@@ -328,10 +330,9 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
     perms = {}
     index_counter = defaultdict(int)
     index_map = {}
-    spins = {}
     for expression, output in zip(expressions, outputs):
         if output.rank != 0:
-            base = sympy.IndexedBase(output.symbol)
+            base = sympy.IndexedBase(output.symbol + "_" + "".join([i.occupancy for i in output.indices]))
             inds = []
             for index in output.indices:
                 if index not in index_map:
@@ -339,14 +340,13 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
                     spin = {0: "a", 1: "b"}.get(index.spin, "")
                     inds.append("%s%d%s" % (sector, index_counter[sector], spin))
                     index_map[index] = inds[-1]
-                    spins[inds[-1]] = index.spin
                     index_counter[sector] += 1
                 else:
                     inds.append(index_map[index])
             out = base
             lhs_ranges = [(sympy.Symbol(index), ranges[index[0]]) for index in inds]
         else:
-            base = sympy.Symbol(output.symbol)
+            base = sympy.Symbol(output.symbol + "_")
             out = base
             lhs_ranges = []
 
@@ -354,7 +354,8 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
         for contraction in expression.contractions:
             einst = contraction.factor
             for tensor in contraction.tensors:
-                base = sympy.IndexedBase(tensor.symbol)
+                symbol = tensor.symbol + "_" + "".join([i.occupancy for i in tensor.indices])
+                base = sympy.IndexedBase(symbol)
                 inds = []
                 for index in tensor.indices:
                     if index not in index_map:
@@ -362,16 +363,15 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
                         spin = {0: "a", 1: "b"}.get(index.spin, "")
                         inds.append("%s%d%s" % (sector, index_counter[sector], spin))
                         index_map[index] = inds[-1]
-                        spins[inds[-1]] = index.spin
                         index_counter[sector] += 1
                     else:
                         inds.append(index_map[index])
                 inds = tuple(sympy.Symbol(x) for x in inds)
                 einst *= base[inds]
-                if tensor.symbol not in perms:
-                    perms[tensor.symbol] = list(tensor.perms)
+                if symbol not in perms:
+                    perms[symbol] = list(tensor.perms)
                 else:
-                    perms[tensor.symbol] = [p for p in perms[tensor.symbol] if p in tensor.perms]
+                    perms[symbol] = [p for p in perms[symbol] if p in tensor.perms]
             expr += einst
 
         rhs = dr.einst(expr)
@@ -421,9 +421,14 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
                     index_map[index] = char
                     index_counter[sector.lower()] += 1
                 externals.add(char)
-                #spin = spins[repr(index)]
                 spin = None if ghf else (2 if rhf else {"a": 0, "b": 1}[repr(index)[-1]])
                 inds.append(ExternalIndex(char, sector, spin))
+
+        # Remove occupancy tags
+        if not (symbol.startswith("x") and all(x.isdigit() for x in symbol[1:])):
+            while symbol[-1] != "_":
+                symbol = symbol[:-1]
+            symbol = symbol[:-1]
 
         if len(inds) == 0:
             output = Scalar(symbol)
@@ -462,12 +467,17 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
                         char = default_characters[sector][index_counter[sector.lower()]]
                         index_map[index] = char
                         index_counter[sector.lower()] += 1
-                    #spin = spins[repr(index)]
                     spin = None if ghf else (2 if rhf else {"a": 0, "b": 1}[repr(index)[-1]])
                     if char in externals:
                         inds.append(ExternalIndex(char, sector, spin))
                     else:
                         inds.append(DummyIndex(char, sector, spin))
+
+                # Remove occupancy tags
+                if not (symbol.startswith("x") and all(x.isdigit() for x in symbol[1:])):
+                    while symbol[-1] != "_":
+                        symbol = symbol[:-1]
+                    symbol = symbol[:-1]
 
                 if len(inds) == 0:
                     tensor = Scalar(symbol)

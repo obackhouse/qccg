@@ -23,10 +23,14 @@ def write_einsum(
         zeros_function: str = "np.zeros",
         characters: dict = default_characters,
         add_occupancies: set = {"f", "v"},
+        use_subscript_occupancies: set = {},
+        add_slices: set = {},
+        full_is_inactive: bool = False,
         add_spins: set = All,
         reorder_axes: set = {},
         indent: int = 0,
         index_sizes: dict = {"o": "nocc", "v": "nvir", "O": "naocc", "V": "navir", "b": "nbos"},
+        custom_shapes: dict = {},
         force_optimize_kwarg: bool = False,
         string_subscript: bool = False,
 ) -> str:
@@ -51,27 +55,38 @@ def write_einsum(
                 raise NotImplementedError
             res += "_" + "".join(["ab"[index.spin] for index in output.indices])
 
+    occupancy_conversion = {}
+    if full_is_inactive:
+        occupancy_conversion["o"] = "i"
+        occupancy_conversion["v"] = "a"
+
     if output.symbol in add_occupancies:
-        res += "_" + "".join([index.occupancy for index in output.indices])
+        res += "_" + "".join([occupancy_conversion.get(index.occupancy, index.occupancy) for index in output.indices])
+
+    if output.symbol in add_slices:
+        res += "[%s]" % ",".join([occupancy_conversion.get(index.occupancy, index.occupancy) for index in output.indices])
 
     # If index_sizes is passed, write initialisation
     if index_sizes:
         # Update with dummies
         sizes = []
         for index in output.indices:
-            key = characters_inv[index.character]
             if index.spin in (None, 2):
-                sizes.append(index_sizes[key])
+                sizes.append(index_sizes[index.occupancy])
             else:
-                sizes.append(index_sizes[key] + "[%d]" % index.spin)
+                sizes.append(index_sizes[index.occupancy] + "[%d]" % index.spin)
         if len(sizes) == 0:
             terms.append("%s = 0" % output.symbol)
         else:
-            shape = ", ".join(sizes)
+            if output.symbol in custom_shapes:
+                shape = custom_shapes[output.symbol]
+            else:
+                shape = ", ".join(sizes)
             if output.rank == 1:
                 shape += ","
+            res_no_slice = re.sub(r"\[.*?\]", "", res)
             terms.append("{res} = {zeros}(({shape}), dtype=np.float64)".format(
-                res=res,
+                res=res_no_slice,
                 zeros=zeros_function,
                 shape=shape,
             ))
@@ -96,7 +111,11 @@ def write_einsum(
                     symbol += "." + "".join(["ab"[index.spin] for index in indices])
 
             if tensor.symbol in add_occupancies:
-                symbol += "." + "".join([index.occupancy for index in indices])
+                delim = "_" if tensor.symbol in use_subscript_occupancies else "."
+                symbol += delim + "".join([occupancy_conversion.get(index.occupancy, index.occupancy) for index in indices])
+
+            if tensor.symbol in add_slices:
+                symbol += "[%s]" % ",".join([occupancy_conversion.get(index.occupancy, index.occupancy) for index in indices])
 
             tensors.append(symbol)
             subscripts_in_entry = []
@@ -155,6 +174,7 @@ def write_c_loop(
     """
     Writes an `Expression` in the form of a C for loop.
     """
+    #TODO doesn't support new occupancies yet
 
     if any(len(contraction.tensors) > 2 for contraction in expression.contractions):
         raise ValueError("write_c_loop shouldn't be used for non-optimised expressions.")

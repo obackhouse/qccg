@@ -28,6 +28,7 @@ def from_pdaggerq(
         terms: list,
         characters: dict = default_characters,
         index_spins: dict = {},
+        index_spaces: dict = {},
         has_spin: bool = False,
         has_spaces: bool = False,
 ) -> Expression:
@@ -104,6 +105,12 @@ def from_pdaggerq(
                 raise ValueError(index)
 
             spin = index_spins.get(index, None)
+            space = index_spaces.get(index, "f")
+
+            if space not in ("f", "a", "i"):
+                raise ValueError(space)
+            if space == "a":
+                occupancy = occupancy.upper()
 
             if index in externals:
                 index_map[index] = ExternalIndex(index, occupancy, spin)
@@ -116,13 +123,13 @@ def from_pdaggerq(
             if part.startswith("f"):
                 index_chars = part[part.index("(")+1:part.index(")")].split(",")
                 indices = tuple(index_map[index] for index in index_chars)
-                indices = indices[::-1]  # why?
                 if has_spin:
                     spins = tuple("ab".index(s) for s in part[2:4])
                     indices = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins))
                 if has_spaces:
-                    spaces = [{"0": "act", "1": "ext"}[x] for x in part[2:4]]
+                    spaces = [{"0": "ext", "1": "act"}[x] for x in part[2:4]]
                     indices = tuple(index.copy(occupancy=index.occupancy.upper() if space == "act" else index.occupancy.lower()) for index, space in zip(indices, spaces))
+                indices = indices[::-1]  # why?
                 tensor = Fock(indices)
 
             elif any(part.startswith(x) for x in ("t", "l", "r")):
@@ -134,14 +141,17 @@ def from_pdaggerq(
                     spins = tuple("ab".index(s) for s in part[idx:idx+len(indices)])
                 else:
                     spins = tuple(index.spin for index in indices)
-                lower = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins) if index.occupancy.lower() == "o")
-                upper = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins) if index.occupancy.lower() == "v")
+                nupper = 0
+                while indices[nupper].occupancy.lower() == indices[0].occupancy.lower():
+                    nupper += 1
+                upper = indices[:nupper]
+                lower = indices[nupper:]
                 if has_spaces:
                     idx = part.index("_") + 1
-                    spaces = [{"0": "act", "1": "ext"}[x] for x in part[idx:idx+len(indices)]]
+                    spaces = [{"0": "ext", "1": "act"}[x] for x in part[idx:idx+len(indices)]]
                     symbol = symbol[:idx-1]
-                    lower = tuple(index.copy(occupancy=index.occupancy.upper() if space == "act" else index.occupancy.lower()) for index, space in zip(lower, spaces))
-                    upper = tuple(index.copy(occupancy=index.occupancy.upper() if space == "act" else index.occupancy.lower()) for index, space in zip(upper, spaces))
+                    upper = tuple(index.copy(occupancy=index.occupancy.upper() if space == "act" else index.occupancy.lower()) for index, space in zip(upper, spaces[:nupper:]))
+                    lower = tuple(index.copy(occupancy=index.occupancy.upper() if space == "act" else index.occupancy.lower()) for index, space in zip(lower, spaces[nupper:]))
                 if part.startswith("l"):
                     lower, upper = upper, lower
                 tensor = FermionicAmplitude(symbol, lower, upper)
@@ -149,14 +159,14 @@ def from_pdaggerq(
             elif part.startswith("<"):
                 index_chars = part[part.index("<")+1:part.index(">")].replace("||", ",").split(",")
                 indices = tuple(index_map[index] for index in index_chars)
+                if has_spaces:
+                    spaces = [{"0": "ext", "1": "act"}[x] for x in part[-4:]]
+                    indices = tuple(index.copy(occupancy=index.occupancy.upper() if space == "act" else index.occupancy.lower()) for index, space in zip(indices, spaces))
                 indices = indices[2:] + indices[:2]  # why?
                 if has_spin:
                     spins = tuple("ab".index(s) for s in part[-4:])
                     indices = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins))
                     indices = (indices[0], indices[2], indices[1], indices[3])
-                if has_spaces:
-                    spaces = [{"0": "act", "1": "ext"}[x] for x in part[-4:]]
-                    indices = tuple(index.copy(occupancy=index.occupancy.upper() if space == "act" else index.occupancy.lower()) for index, space in zip(indices, spaces))
                 tensor = ERI(indices)
 
             elif part.startswith("denom"):
@@ -185,7 +195,7 @@ def from_pdaggerq(
                     spins = tuple("ab".index(s) for s in part[2:4])
                     indices = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins))
                 if has_spaces:
-                    spaces = [{"0": "act", "1": "ext"}[x] for x in part[2:4]]
+                    spaces = [{"0": "ext", "1": "act"}[x] for x in part[2:4]]
                     indices = tuple(index.copy(occupancy=index.occupancy.upper() if space == "act" else index.occupancy.lower()) for index, space in zip(indices, spaces))
                 tensor = Delta(indices)
 
