@@ -33,6 +33,7 @@ def write_einsum(
         custom_shapes: dict = {},
         force_optimize_kwarg: bool = False,
         string_subscript: bool = False,
+        inplace_mode: bool = False,
 ) -> str:
     """
     Writes an `Expression` in the form of an einsum.
@@ -147,14 +148,23 @@ def write_einsum(
             operands.append(subscripts_out)
             operands = ", ".join([str(op) for op in operands])
 
-        term = "{res} += {fn}({operands}{opt}){op}{fac}".format(
-                res=res,
-                fn=einsum_function,
-                operands=operands,
-                op="" if contraction.factor == 1.0 else " * ",
-                fac="" if contraction.factor == 1.0 else contraction.factor,
-                opt=", optimize=True" if force_optimize_kwarg else "",
-        )
+        if (not inplace_mode) or (len(output.indices) == 0):
+            term = "{res} += {fn}({operands}{opt}){op}{fac}".format(
+                    res=res,
+                    fn=einsum_function,
+                    operands=operands,
+                    op="" if contraction.factor == 1.0 else " * ",
+                    fac="" if contraction.factor == 1.0 else contraction.factor,
+                    opt=", optimize=True" if force_optimize_kwarg else "",
+            )
+        else:
+            term = "{res} = {fn}({operands}{opt}, alpha={fac}, beta=1.0, out={res})".format(
+                    res=res,
+                    fn=einsum_function,
+                    operands=operands,
+                    fac=contraction.factor,
+                    opt=", optimize=True" if force_optimize_kwarg else "",
+            )
         terms.append(term)
 
     return (indent * " ") + ("\n%s" % (indent * " ")).join(terms)
@@ -467,7 +477,10 @@ def write_opt_einsums(
             if not kwargs.get("string_subscript", False):
                 # The line is i.e. 'x0 += einsum(x, (0, 1, 2, 3), y, (4, 1, 5, 3), (4, 0, 5, 2))'
                 # and we want to find ['x', 'y']
-                tensors = line[line.index("("):-(line[::-1].index(")")+1)]
+                if kwargs.get("inplace_mode", False) and "alpha" in line:
+                    tensors = line[line.index("("):line.index(", alpha")+1]
+                else:
+                    tensors = line[line.index("("):-(line[::-1].index(")")+1)]
                 tensors = tensors.replace("(", " ").replace(")", " ").replace(",", " ")
                 tensors = [x for x in tensors.split() if not x.isdigit()]
             else:
