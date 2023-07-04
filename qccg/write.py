@@ -408,8 +408,9 @@ def write_opt_einsums(
 
     # Push any expression resulting in one of the final outputs to the
     # end of the list
+    final_outputs = set(x.symbol for x in final_outputs)
     for i in range(len(expressions)-1, -1, -1):
-        if outputs[i] in final_outputs:
+        if outputs[i].symbol in final_outputs:
             new_expressions.insert(0, expressions.pop(i))
             new_outputs.insert(0, outputs.pop(i))
 

@@ -85,8 +85,10 @@ class AIndex(AlgebraicBase):
 
     def __repr__(self):
         out = self.character
-        if self.spin == 1:
+        if self.occupancy == self.occupancy.upper():
             out = out.upper()
+        if self.spin in (0, 1):
+            out += "ab"[self.spin]
         return out
 
 

@@ -852,12 +852,21 @@ class FermionicAmplitude(ATensor):
         for neighbouring indices with the same spin.
         """
 
+        # Apply the strongest penalty for when active indices are not
+        # at the end of the indices
+        active_lower = tuple(index.occupancy == index.occupancy.upper() for index in self.lower)
+        active_upper = tuple(index.occupancy == index.occupancy.upper() for index in self.upper)
+        penalty = [
+                int(active_lower != tuple(sorted(active_lower))),
+                int(active_upper != tuple(sorted(active_upper))),
+        ]
+
         if len(self.lower) == len(self.upper):
             # For T, L we want mixed-spin cases to have alternating
             # spin i.e. abab, abaaba, etc.
             pattern_a = tuple(([0, 1] * self.rank)[:self.rank // 2]) * 2
             pattern_b = tuple(([1, 0] * self.rank)[:self.rank // 2]) * 2
-            penalty = [
+            penalty += [
                     int(tuple(index.spin for index in self.indices) != pattern_a),
                     int(tuple(index.spin for index in self.indices) != pattern_b),
                     *[int(i.spin != j.spin) for i, j in zip(self.lower, self.upper)],
@@ -867,7 +876,7 @@ class FermionicAmplitude(ATensor):
             # spin i.e. aba, bab, ababa, babab, etc.
             pattern_a = tuple(i % 2 for i in range(self.rank))
             pattern_b = tuple(0 if i == 1 else 1 for i in pattern_a)
-            penalty = [
+            penalty += [
                     int(tuple(index.spin for index in self.indices) != pattern_a),
                     int(tuple(index.spin for index in self.indices) != pattern_b),
             ]
