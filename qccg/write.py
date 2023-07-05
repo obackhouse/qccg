@@ -65,7 +65,11 @@ def write_einsum(
         res += "_" + "".join([occupancy_conversion.get(index.occupancy, index.occupancy) for index in output.indices])
 
     if output.symbol in add_slices:
-        res += "[%s]" % ",".join([occupancy_conversion.get(index.occupancy, index.occupancy) for index in output.indices])
+        slices = [
+            occupancy_conversion.get(index.occupancy, index.occupancy) + {0: "a", 1: "b"}.get(index.spin, "")
+            for index in output.indices
+        ]
+        res += "[%s]" % ",".join(slices)
 
     # If index_sizes is passed, write initialisation
     if index_sizes:
@@ -116,7 +120,11 @@ def write_einsum(
                 symbol += delim + "".join([occupancy_conversion.get(index.occupancy, index.occupancy) for index in indices])
 
             if tensor.symbol in add_slices:
-                symbol += "[%s]" % ",".join([occupancy_conversion.get(index.occupancy, index.occupancy) for index in indices])
+                slices = [
+                    occupancy_conversion.get(index.occupancy, index.occupancy) + {0: "a", 1: "b"}.get(index.spin, "")
+                    for index in indices
+                ]
+                symbol += "[%s]" % ",".join(slices)
 
             tensors.append(symbol)
             subscripts_in_entry = []

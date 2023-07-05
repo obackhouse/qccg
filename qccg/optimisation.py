@@ -344,7 +344,8 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
                 else:
                     inds.append(index_map[index])
             out = base
-            lhs_ranges = [(sympy.Symbol(index), ranges[index[0]]) for index in inds]
+            index_to_range = lambda index: ranges["".join([x for x in index if not x.isdigit()])]
+            lhs_ranges = [(sympy.Symbol(index), index_to_range(index)) for index in inds]
         else:
             base = sympy.Symbol(output.symbol + "_")
             out = base
