@@ -29,7 +29,7 @@ def write_einsum(
         add_spins: set = All,
         reorder_axes: set = {},
         indent: int = 0,
-        index_sizes: dict = {"o": "nocc", "v": "nvir", "O": "naocc", "V": "navir", "b": "nbos"},
+        index_sizes: dict = {"o": "nocc", "v": "nvir", "O": "naocc", "V": "navir", "b": "nbos", "x": "naux"},
         custom_shapes: dict = {},
         force_optimize_kwarg: bool = False,
         string_subscript: bool = False,
@@ -84,7 +84,14 @@ def write_einsum(
             terms.append("%s = 0" % output.symbol)
         else:
             if output.symbol in custom_shapes:
-                shape = custom_shapes[output.symbol]
+                # If the output symbol is in add_spins, check if custom_shapes
+                # contains the spinned version of the symbol first
+                if output.symbol in add_spins and not (output.symbol.startswith("x") and output.symbol[1:].isnumeric()):
+                    if any(index.spin in (0, 1) for index in output.indices):
+                        key = output.symbol + "_" + "".join(["ab"[index.spin] for index in output.indices])
+                if key not in custom_shapes:
+                    key = output.symbol
+                shape = custom_shapes[key]
             else:
                 shape = ", ".join(sizes)
             if output.rank == 1:
@@ -186,7 +193,7 @@ def write_c_loop(
         add_spins: set = All,
         reorder_axes: set = {},
         indent: int = 0,
-        index_sizes: dict = {"o": "nocc", "v": "nvir", "O": "naocc", "V": "navir", "b": "nbos"},
+        index_sizes: dict = {"o": "nocc", "v": "nvir", "O": "naocc", "V": "navir", "b": "nbos", "x": "naux"},
         omp_collapse: int = None,
 ) -> str:
     """
@@ -465,7 +472,7 @@ def write_opt_einsums(
     ])
 
     # Since we split the contractions we need to remove duplicate
-    # initialisation statements
+    # initialisation statements.
     seen = set()
     delete = set()
     for i, line in enumerate(einsums):

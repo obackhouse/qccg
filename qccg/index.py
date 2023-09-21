@@ -39,10 +39,10 @@ class AIndex(AlgebraicBase):
             return "V"
         elif occupancy in ("boson", "b"):
             return "b"
-        elif occupancy in ("auxiliary", "x"):
+        elif occupancy in ("auxiliary", "x", "X"):
             return "x"
         else:
-            raise ValueError("occupancy = %s" % spin)
+            raise ValueError("occupancy = %s" % occupancy)
 
     @staticmethod
     def _convert_spin(spin: Union[int, str]):

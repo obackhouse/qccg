@@ -196,10 +196,14 @@ class Contraction(AlgebraicBase):
                         old.append(index)
                         cache.add(index)
             new = qccg.dummy_register[occupancy.lower()][:len(old)].copy()
-            for spin in (None, 0, 1):
-                for occ in [occupancy.lower(), occupancy.upper()]:
-                    for o, n in zip(old, new):
-                        dummy_map[o.copy(spin=spin, occupancy=occ)] = n.copy(spin=spin, occupancy=occ)
+            if occupancy in ("o", "O", "v", "V"):
+                for spin in (None, 0, 1):
+                    for occ in [occupancy.lower(), occupancy.upper()]:
+                        for o, n in zip(old, new):
+                            dummy_map[o.copy(spin=spin, occupancy=occ)] = n.copy(spin=spin, occupancy=occ)
+            else:
+                for o, n in zip(old, new):
+                    dummy_map[o] = n
 
         # Substitute the indices in the tensors
         tensors = tuple(tensor.substitute_indices(dummy_map) for tensor in self.tensors)
@@ -292,7 +296,8 @@ class Contraction(AlgebraicBase):
         tensors = []
         for tensor in self.tensors:
             if hasattr(tensor, "expand_cderi"):
-                tensors += list(tensor.expand_cderi(DummyIndex(indices[i], "x", "r")))
+                spin = "r" if tensor.is_restricted else "a"
+                tensors += list(tensor.expand_cderi(DummyIndex(indices[i], "x", "a")))
                 i += 1
             else:
                 tensors.append(tensor)

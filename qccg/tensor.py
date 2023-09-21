@@ -283,7 +283,6 @@ class CDERI(ATensor):
         assert all(index.occupancy.lower() in ("o", "v") for index in self.indices[1:])
         assert all(index.spin in (0, 1, 2) for index in self.indices[1:])
         assert self.indices[0].occupancy == "x"
-        assert self.indices[0].spin == 2
 
     @property
     def perms(self):
@@ -852,14 +851,7 @@ class FermionicAmplitude(ATensor):
         for neighbouring indices with the same spin.
         """
 
-        # Apply the strongest penalty for when active indices are not
-        # at the end of the indices
-        active_lower = tuple(index.occupancy == index.occupancy.upper() for index in self.lower)
-        active_upper = tuple(index.occupancy == index.occupancy.upper() for index in self.upper)
-        penalty = [
-                int(active_lower != tuple(sorted(active_lower))),
-                int(active_upper != tuple(sorted(active_upper))),
-        ]
+        penalty = []
 
         if len(self.lower) == len(self.upper):
             # For T, L we want mixed-spin cases to have alternating
@@ -880,6 +872,14 @@ class FermionicAmplitude(ATensor):
                     int(tuple(index.spin for index in self.indices) != pattern_a),
                     int(tuple(index.spin for index in self.indices) != pattern_b),
             ]
+
+        # Active indices at the end of indices list
+        active_lower = tuple(index.occupancy == index.occupancy.upper() for index in self.lower)
+        active_upper = tuple(index.occupancy == index.occupancy.upper() for index in self.upper)
+        penalty += [
+                int(active_lower != tuple(sorted(active_lower))),
+                int(active_upper != tuple(sorted(active_upper))),
+        ]
 
         # Otherwise, prefer all a indices before b
         if len(self.lower) > 1:

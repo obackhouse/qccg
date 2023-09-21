@@ -254,7 +254,10 @@ def optimise_expression(expressions, outputs, sizes=DEFAULT_SIZES, opmin=OPMIN_C
                     elif symbol.startswith("f"):
                         tensors[i] = Fock(indices)
                     elif symbol.startswith("v"):
-                        tensors[i] = ERI(indices)
+                        if len(indices) == 4:
+                            tensors[i] = ERI(indices)
+                        else:
+                            tensors[i] = CDERI(indices)
                     elif symbol.startswith("t") or symbol.startswith("l") or symbol.startswith("r"):
                         lower = tuple(index for index in indices if index.occupancy.lower() == "o")
                         upper = tuple(index for index in indices if index.occupancy.lower() == "v")
@@ -487,7 +490,10 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
                 elif symbol.startswith("f"):
                     tensor = Fock(inds)
                 elif symbol.startswith("v"):
-                    tensor = ERI(inds)
+                    if len(inds) == 4:
+                        tensor = ERI(inds)
+                    else:
+                        tensor = CDERI(inds)
                 elif symbol.startswith("delta"):
                     tensor = Delta(inds)
                 elif symbol.startswith("γ") or symbol.startswith("Γ") or symbol.startswith("rdm"):
