@@ -7,7 +7,7 @@ import itertools
 from collections import defaultdict
 
 from qccg.index import ExternalIndex, DummyIndex
-from qccg.tensor import Fock, ERI, FermionicAmplitude, RDM1, RDM2, Delta, ATensor
+from qccg.tensor import Fock, ERI, ERI_single, FermionicAmplitude, RDM1, RDM2, Delta, ATensor
 from qccg.contraction import Contraction, Expression
 
 pdaggerq_characters = {
@@ -85,7 +85,10 @@ def from_pdaggerq(
             if term.endswith(")"):
                 term_indices = term[term.index("(")+1:term.index(")")].split(",")
             elif term.startswith("<"):
-                term_indices = term[term.index("<")+1:term.index(">")].replace("||", ",").split(",")
+                if "||" in term:
+                    term_indices = term[term.index("<")+1:term.index(">")].replace("||", ",").split(",")
+                else:
+                    term_indices = term[term.index("<")+1:term.index(">")].replace("|", ",").split(",")
             else:
                 raise ValueError
 
@@ -157,7 +160,12 @@ def from_pdaggerq(
                 tensor = FermionicAmplitude(symbol, lower, upper)
 
             elif part.startswith("<"):
-                index_chars = part[part.index("<")+1:part.index(">")].replace("||", ",").split(",")
+                if "||" in part:
+                    index_chars = part[part.index("<")+1:part.index(">")].replace("||", ",").split(",")
+                    cls = ERI
+                else:
+                    index_chars = part[part.index("<")+1:part.index(">")].replace("|", ",").split(",")
+                    cls = ERI_single
                 indices = tuple(index_map[index] for index in index_chars)
                 if has_spaces:
                     spaces = [{"0": "ext", "1": "act"}[x] for x in part[-4:]]
@@ -167,7 +175,8 @@ def from_pdaggerq(
                     spins = tuple("ab".index(s) for s in part[-4:])
                     indices = tuple(index.copy(spin=spin) for index, spin in zip(indices, spins))
                     indices = (indices[0], indices[2], indices[1], indices[3])
-                tensor = ERI(indices)
+                    cls = ERI
+                tensor = cls(indices)
 
             elif part.startswith("denom"):
                 # FIXME

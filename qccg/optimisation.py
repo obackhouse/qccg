@@ -14,7 +14,7 @@ from collections import defaultdict
 
 import qccg
 from qccg.index import ExternalIndex, DummyIndex
-from qccg.tensor import ATensor, Scalar, Fock, ERI, CDERI, FermionicAmplitude, RDM1, RDM2, Delta
+from qccg.tensor import ATensor, Scalar, Fock, ERI, ERI_single, CDERI, FermionicAmplitude, RDM1, RDM2, Delta
 from qccg.contraction import Contraction, Expression
 
 
@@ -255,7 +255,10 @@ def optimise_expression(expressions, outputs, sizes=DEFAULT_SIZES, opmin=OPMIN_C
                         tensors[i] = Fock(indices)
                     elif symbol.startswith("v"):
                         if len(indices) == 4:
-                            tensors[i] = ERI(indices)
+                            if symbol == "vs":
+                                tensors[i] = ERI_single(indices)
+                            else:
+                                tensors[i] = ERI(indices)
                         else:
                             tensors[i] = CDERI(indices)
                     elif symbol.startswith("t") or symbol.startswith("l") or symbol.startswith("r"):
@@ -491,7 +494,10 @@ def optimise_expression_gristmill(expressions, outputs, sizes=DEFAULT_SIZES, str
                     tensor = Fock(inds)
                 elif symbol.startswith("v"):
                     if len(inds) == 4:
-                        tensor = ERI(inds)
+                        if symbol == "vs":
+                            tensor = ERI_single(inds)
+                        else:
+                            tensor = ERI(inds)
                     else:
                         tensor = CDERI(inds)
                 elif symbol.startswith("delta"):

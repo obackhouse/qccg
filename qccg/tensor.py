@@ -419,6 +419,70 @@ class ERI(ATensor):
         ))
 
 
+class ERI_single(ATensor):
+    """
+    Electronic repulsion integral without antisymmetry in GHF
+    representations. Should not be used for RHF or UHF.
+    """
+
+    _symbol = "vs"
+
+    def __init__(self, indices: Iterable[AIndex], real: bool = ASSUME_REAL):
+        super().__init__(self._symbol, indices)
+        self.real = real
+
+    def check_sanity(self):
+        ATensor.check_sanity(self)
+        assert self.rank == 4
+        assert all(index.occupancy.lower() in ("o", "v") for index in self.indices)
+        assert self.is_spin_orbital
+
+    @property
+    def perms(self):
+        if self._perms is not None:
+            for perm in self._perms:
+                yield perm
+        else:
+            yield ((0, 1, 2, 3),  1)
+            yield ((1, 0, 3, 2),  1)
+            if self.real:
+                yield ((2, 3, 0, 1),  1)
+                yield ((3, 2, 1, 0),  1)
+
+    def expand_spin_orbitals(self):
+        """
+        Expand any spin orbitals (those with unspecified spin) into sums
+        over their alpha and beta components.
+        """
+
+        if qccg.spin == "ghf":
+            return (self,), (1,)
+
+        fixed_spins = {
+                i: index.spin for i, index in enumerate(self.indices)
+                if index.spin is not None
+        }
+        tensors = defaultdict(int)
+
+        for spins in [
+                (0, 0, 0, 0),
+                (1, 1, 1, 1),
+                (0, 1, 0, 1),
+                (1, 0, 1, 0),
+        ]:
+            indices = tuple(index.copy(spin=spin) for index, spin in zip(self.indices, spins))
+
+            # If we have fixed spins, skip this one if it's not valid:
+            if any(indices[i].spin != spin for i, spin in fixed_spins.items()):
+                continue
+
+            tensor = ERI(indices)
+
+            tensors[tensor.permute_indices((0, 2, 1, 3))] += 1
+
+        return tuple(tensors.keys()), tuple(tensors.values())
+
+
 class RDM1(Fock):
     """
     1RDM matrix.
